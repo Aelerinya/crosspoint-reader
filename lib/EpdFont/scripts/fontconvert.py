@@ -1,4 +1,5 @@
 #!python3
+import os
 import zlib
 import sys
 import re
@@ -274,6 +275,10 @@ def load_glyph(code_point):
         face_index += 1
     return None
 
+# FONTCONVERT_LEAN=1: Latin + punctuation only (theme UI fonts, to fit flash).
+if os.environ.get("FONTCONVERT_LEAN"):
+    intervals = [(0x0020, 0x007E), (0x00A0, 0x017F), (0x0218, 0x021B), (0x2010, 0x2027),
+                 (0x2030, 0x203A), (0x20AC, 0x20AC), (0x2122, 0x2122), (0xFB00, 0xFB04), (0xFFFD, 0xFFFD)]
 unmerged_intervals = sorted(intervals + add_ints)
 intervals = []
 unvalidated_intervals = []

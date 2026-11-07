@@ -45,6 +45,8 @@ class UITheme {
   static bool hasCoverGridHome();
   static void drawCoverGridHome(CoverGridHomeUi& home);
   void reload();
+  // Lets setTheme() swap the UI fonts; call after the default fonts are registered.
+  void attachRenderer(GfxRenderer* r);
   void setTheme(CrossPointSettings::UI_THEME type);
   static std::string getCoverThumbPath(std::string coverBmpPath, int coverHeight);
   static UIIcon getFileIcon(const std::string& filename);
@@ -53,6 +55,7 @@ class UITheme {
 
  private:
   BaseTheme fallbackTheme;
+  GfxRenderer* fontRenderer = nullptr;
   const ThemeMetrics* currentMetrics = &BaseMetrics::values;
   std::unique_ptr<BaseTheme> currentTheme;
   mutable ThemeMetrics adjustedMetrics;
