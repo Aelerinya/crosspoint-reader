@@ -240,7 +240,8 @@ void LyraTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
             // vertically instead of rescaling the dither.
             drawCoverThumbFill(renderer, bitmap,
                                Rect{tileX + hPaddingInSelection, tileY + hPaddingInSelection, coverWidth,
-                                    LyraMetrics::values.homeCoverHeight});
+                                    LyraMetrics::values.homeCoverHeight},
+                               0, coverBmpPath);
           } else {
             hasCover = false;
           }

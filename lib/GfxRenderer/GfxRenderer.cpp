@@ -1511,9 +1511,14 @@ bool GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
       const uint8_t val = outputRow[bmpX / 4] >> (6 - ((bmpX * 2) % 8)) & 0x3;
       if (whiteAsTransparent && val == 3) continue;
 
-      if (renderMode == BW && val < 3) {
+      if (renderMode == BW && ditherImagesInBw) {
+        // Same 2x2 Bayer cell as DirectPixelWriter: dark gray inks 3 of 4 pixels, light gray 1 of 4.
+        static constexpr uint8_t BAYER[4] = {0, 2, 3, 1};
+        const uint8_t threshold = BAYER[((screenY & 1) << 1) | (screenX & 1)];
+        if (val == 0 || (val == 1 && threshold < 3) || (val == 2 && threshold < 1)) drawPixel(screenX, screenY);
+      } else if (renderMode == BW && val < 3) {
         drawPixel(screenX, screenY);
-      } else if (renderMode == GRAYSCALE_LSB || renderMode == GRAYSCALE_MSB) {
+      } else if (!ditherImagesInBw && (renderMode == GRAYSCALE_LSB || renderMode == GRAYSCALE_MSB)) {
         const auto pixel = grayPlanePixel(val, renderMode == GRAYSCALE_MSB, absoluteGrayPlanes);
         if (pixel.write) drawPixel(screenX, screenY, pixel.black);
       }

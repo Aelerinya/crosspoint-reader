@@ -24,7 +24,7 @@ class CoverGridHomeUi final : public UiAppHost {
   void setSelection(int selection) { selected = selection; }
   int selectedAction(const MappedInputManager& input);
   // Exact generation height, shared by every slot and recorded during draw.
-  // Thumbs must be generated at the drawn size: rescaling a dithered 1-bit
+  // Thumbs must be generated at the drawn size: rescaling a dithered
   // image aliases badly.
   int thumbHeightFor() const;
   bool takeThumbHeightChanged();

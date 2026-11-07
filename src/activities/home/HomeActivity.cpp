@@ -228,6 +228,8 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
 
 void HomeActivity::onEnter() {
   Activity::onEnter();
+  grayCovers.clear();
+  grayPassFailed = false;
 
   hasOpdsServers = OPDS_STORE.hasServers();
   // Plugin System is the global opt-in. Once enabled, expose the Plugins entry
@@ -261,8 +263,101 @@ void HomeActivity::onExit() {
 
   coverGridUi.reset();
 
+  // A gray cover leaves charge a fast B/W refresh can ghost; clean it on the next screen.
+  if (grayCoversShown) renderer.promoteNextRefresh(HalDisplay::HALF_REFRESH);
+  grayCoversShown = false;
+
   // Free the stored cover buffer if any
   freeCoverBuffer();
+}
+
+// Overlay gray planes for the covers in grayCovers; the B/W frame (covers in
+// solid black) must already be on the panel. Returns false if nothing was shown.
+bool HomeActivity::displayGrayCovers() {
+  // B/W copy of each cover's clip rect (a few KB each, freed on return). The
+  // planes are masked with it so white chrome drawn over a cover stays white;
+  // black chrome is excluded by excludeFromGrayCovers().
+  std::vector<std::unique_ptr<uint8_t[]>> bwRegions;
+  if (!renderer.storeBwBuffer()) {
+    // A combined-base panel may still hold a deferred B/W activation.
+    if (renderer.grayscaleCapabilities().base == HalDisplay::GrayscaleBase::Combined)
+      renderer.cleanupGrayscaleWithFrameBuffer();
+    return false;
+  }
+  bool ready = true;
+  for (const auto& cover : grayCovers) {
+    if (cover.path.empty()) {
+      bwRegions.emplace_back();
+      continue;
+    }
+    const size_t bytes = renderer.getRegionByteSize(cover.clipX, cover.clipY, cover.clipWidth, cover.clipHeight);
+    bwRegions.push_back(makeUniqueNoThrow<uint8_t[]>(bytes));
+    ready = bwRegions.back() && renderer.copyRegionToBuffer(cover.clipX, cover.clipY, cover.clipWidth, cover.clipHeight,
+                                                            bwRegions.back().get(), bytes);
+    if (!ready) break;
+  }
+  for (const auto plane : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
+    if (!ready) break;
+    renderer.clearScreen(0x00);
+    renderer.setRenderMode(plane);
+    for (size_t i = 0; ready && i < grayCovers.size(); i++) {
+      const auto& c = grayCovers[i];
+      ready = BaseTheme::redrawGrayCover(renderer, c);
+      if (!ready || c.path.empty()) continue;
+      // Plane bit 1 = gray, B/W bit 1 = white: keep gray only on black pixels.
+      const size_t bytes = renderer.getRegionByteSize(c.clipX, c.clipY, c.clipWidth, c.clipHeight);
+      auto planeRegion = makeUniqueNoThrow<uint8_t[]>(bytes);
+      ready = planeRegion &&
+              renderer.copyRegionToBuffer(c.clipX, c.clipY, c.clipWidth, c.clipHeight, planeRegion.get(), bytes);
+      if (!ready) break;
+      for (size_t b = 0; b < bytes; b++) planeRegion[b] &= static_cast<uint8_t>(~bwRegions[i][b]);
+      ready = renderer.copyBufferToRegion(c.clipX, c.clipY, c.clipWidth, c.clipHeight, planeRegion.get(), bytes);
+    }
+    if (!ready) break;
+    if (plane == GfxRenderer::GRAYSCALE_LSB)
+      renderer.copyGrayscaleLsbBuffers();
+    else
+      renderer.copyGrayscaleMsbBuffers();
+  }
+  renderer.setRenderMode(GfxRenderer::BW);
+  if (ready) renderer.displayGrayBuffer();
+  renderer.restoreBwBuffer();
+  if (ready) ditherCoversInFrame(bwRegions);
+  return ready;
+}
+
+// After a gray pass the framebuffer holds the solid-black covers the panel
+// baseline expects. Anything that repaints it without a gray pass (quick-resume
+// sleep, screenshots) should get a dithered cover, so swap the cover pixels for
+// the dithered ones without touching the panel baseline. Best effort.
+void HomeActivity::ditherCoversInFrame(const std::vector<std::unique_ptr<uint8_t[]>>& bwRegions) {
+  for (size_t i = 0; i < grayCovers.size() && i < bwRegions.size(); i++) {
+    const auto& c = grayCovers[i];
+    if (c.path.empty() || !bwRegions[i]) continue;
+    const size_t bytes = renderer.getRegionByteSize(c.clipX, c.clipY, c.clipWidth, c.clipHeight);
+    auto dithered = makeUniqueNoThrow<uint8_t[]>(bytes);
+    auto keep = makeUniqueNoThrow<uint8_t[]>(bytes);
+    if (!dithered || !keep) return;
+    renderer.fillRect(c.clipX, c.clipY, c.clipWidth, c.clipHeight, false);
+    renderer.setDitherImagesInBw(true);
+    const bool drawn = BaseTheme::redrawGrayCover(renderer, c);
+    renderer.setDitherImagesInBw(false);
+    renderer.copyRegionToBuffer(c.clipX, c.clipY, c.clipWidth, c.clipHeight, dithered.get(), bytes);
+    // keep: bit 0 inside excluded chrome, which stays as drawn.
+    renderer.fillRect(c.clipX, c.clipY, c.clipWidth, c.clipHeight, false);
+    const auto clip = renderer.getClipRect();
+    renderer.setClipRect(c.clipX, c.clipY, c.clipWidth, c.clipHeight);
+    for (const auto& e : grayCovers) {
+      if (e.path.empty()) renderer.fillRect(e.clipX, e.clipY, e.clipWidth, e.clipHeight, true);
+    }
+    renderer.setClipRect(clip[0], clip[1], clip[2], clip[3]);
+    renderer.copyRegionToBuffer(c.clipX, c.clipY, c.clipWidth, c.clipHeight, keep.get(), bytes);
+    // Bit 1 = white: white where the frame was white, else where the dither is white.
+    for (size_t b = 0; b < bytes; b++) {
+      dithered[b] = drawn ? static_cast<uint8_t>(bwRegions[i][b] | (dithered[b] & keep[b])) : bwRegions[i][b];
+    }
+    renderer.copyBufferToRegion(c.clipX, c.clipY, c.clipWidth, c.clipHeight, dithered.get(), bytes);
+  }
 }
 
 bool HomeActivity::storeCoverBuffer() {
@@ -519,9 +614,17 @@ void HomeActivity::render(RenderLock&&) {
   coverRectW = content.width;
   coverRectH = metrics.homeCoverTileHeight;
 
+  // A fresh cover draw logs its gray covers; a restored tile reuses the last
+  // log. Every refresh needs the gray pass: some panels (UC8179/UC8279) redrive
+  // all pixels to the B/W frame on the next fast refresh.
+  std::vector<BaseTheme::GrayCover> drawnCovers;
+  const bool grayPass = !grayPassFailed && renderer.grayscaleCapabilities().supported();
+  if (grayPass) BaseTheme::grayCoverLog = &drawnCovers;
   GUI.drawRecentBookCover(renderer, Rect{content.x, metrics.homeTopPadding, content.width, metrics.homeCoverTileHeight},
                           recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
                           std::bind(&HomeActivity::storeCoverBuffer, this));
+  BaseTheme::grayCoverLog = nullptr;
+  if (!grayPass || !drawnCovers.empty() || !bufferRestored) grayCovers = std::move(drawnCovers);
 
   // Build menu items dynamically
   std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_LIBRARY), tr(STR_FILE_TRANSFER),
@@ -553,7 +656,26 @@ void HomeActivity::render(RenderLock&&) {
                                             tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
-  renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
+  auto refresh = cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH;
+  if (grayCovers.empty()) {
+    renderer.displayBuffer(refresh);
+  } else {
+    // Panels that keep unchanged pixels across a fast refresh (SSD1677) re-nudge
+    // the gray each pass; clean it periodically like the reader does.
+    if (++grayPassesSinceClean >= SETTINGS.getRefreshFrequency()) refresh = HalDisplay::HALF_REFRESH;
+    if (refresh == HalDisplay::HALF_REFRESH) grayPassesSinceClean = 0;
+    renderer.displayGrayscaleBase(refresh);
+    if (displayGrayCovers()) {
+      grayCoversShown = true;
+    } else {
+      // Redraw the solid-black base with dithered covers instead.
+      LOG_ERR("HOME", "Gray cover pass failed; falling back to dithered covers");
+      grayPassFailed = true;
+      grayCovers.clear();
+      coverRendered = false;
+      requestUpdate();
+    }
+  }
 
   if (!firstRenderDone) {
     firstRenderDone = true;

@@ -57,7 +57,8 @@ void Lyra3CoversTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
               // factor went negative for covers narrower than the tile.
               drawCoverThumbFill(renderer, bitmap,
                                  Rect{tileX + hPaddingInSelection, tileY + hPaddingInSelection,
-                                      tileWidth - 2 * hPaddingInSelection, Lyra3CoversMetrics::values.homeCoverHeight});
+                                      tileWidth - 2 * hPaddingInSelection, Lyra3CoversMetrics::values.homeCoverHeight},
+                                 0, coverBmpPath);
             } else {
               hasCover = false;
             }

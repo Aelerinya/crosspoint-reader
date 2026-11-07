@@ -146,7 +146,7 @@ int ExtraThemeBase::drawCoverInSlot(const GfxRenderer& renderer, const RecentBoo
   Bitmap bitmap(file);
   if (bitmap.parseHeaders() == BmpReaderError::Ok) {
     width = std::min(bitmap.getWidth(), slot.width);
-    drawCoverThumbFill(renderer, bitmap, Rect{slot.x + (slot.width - width) / 2, slot.y, width, slot.height});
+    drawCoverThumbFill(renderer, bitmap, Rect{slot.x + (slot.width - width) / 2, slot.y, width, slot.height}, 0, path);
   }
   file.close();
   return width;

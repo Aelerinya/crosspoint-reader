@@ -6,6 +6,7 @@
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
 #include "components/CoverGridHomeUi.h"
+#include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 
 struct Rect;
@@ -34,6 +35,12 @@ class HomeActivity final : public Activity {
   int coverRectY = 0;
   int coverRectW = 0;
   int coverRectH = 0;
+  // Gray covers on screen (plus chrome over them, see BaseTheme::GrayCover),
+  // overlaid in gray after every B/W refresh.
+  std::vector<BaseTheme::GrayCover> grayCovers;
+  bool grayCoversShown = false;
+  bool grayPassFailed = false;  // fall back to dithered covers for this visit
+  int grayPassesSinceClean = 0;
   std::vector<RecentBook> recentBooks;
   const HomeMenuItem initialMenuItem;
   const bool cleanInitialRefresh;
@@ -75,6 +82,8 @@ class HomeActivity final : public Activity {
   bool storeCoverBuffer();    // Store frame buffer for cover image
   bool restoreCoverBuffer();  // Restore frame buffer from stored cover
   void freeCoverBuffer();     // Free the stored cover buffer
+  bool displayGrayCovers();
+  void ditherCoversInFrame(const std::vector<std::unique_ptr<uint8_t[]>>& bwRegions);
   void loadRecentBooks(int maxBooks);
   void loadRecentCovers(int coverHeight);
   void fillCoverGridFromLibrary();

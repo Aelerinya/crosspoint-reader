@@ -146,7 +146,10 @@ void BaseTheme::drawCoverPlaceholder(const GfxRenderer& renderer, Rect rect) {
   }
 }
 
-bool BaseTheme::drawCoverThumbFill(const GfxRenderer& renderer, const Bitmap& bitmap, Rect slot, const int xOffset) {
+std::vector<BaseTheme::GrayCover>* BaseTheme::grayCoverLog = nullptr;
+
+bool BaseTheme::drawCoverThumbFill(const GfxRenderer& renderer, const Bitmap& bitmap, Rect slot, const int xOffset,
+                                   const std::string& path) {
   if (slot.width <= 0 || slot.height <= 0) return false;
   // xOffset nudges the centered art sideways; the clip stays on the slot.
   const int x = slot.x + (slot.width - bitmap.getWidth()) / 2 + xOffset;
@@ -156,8 +159,46 @@ bool BaseTheme::drawCoverThumbFill(const GfxRenderer& renderer, const Bitmap& bi
   const int top = std::max(slot.y, clip[1]);
   renderer.setClipRect(left, top, std::max(0, std::min(slot.x + slot.width, clip[0] + clip[2]) - left),
                        std::max(0, std::min(slot.y + slot.height, clip[1] + clip[3]) - top));
-  const bool drawn = renderer.drawBitmap(bitmap, x, y, bitmap.getWidth(), bitmap.getHeight());
+  const bool gray = bitmap.hasGreyscale() && renderer.getRenderMode() == GfxRenderer::BW;
+  const bool forGrayPass = gray && grayCoverLog && !path.empty();
+  if (gray) renderer.setDitherImagesInBw(true);
+  bool drawn = renderer.drawBitmap(bitmap, x, y, bitmap.getWidth(), bitmap.getHeight());
+  if (gray) renderer.setDitherImagesInBw(false);
+  // Themes frame covers with up to 3 px of border and selection lines; that
+  // rim stays dithered. Inside it, draw solid black as the gray-pass base.
+  constexpr int FRAME = 3;
+  const auto used = renderer.getClipRect();
+  if (drawn && forGrayPass && used[2] > 2 * FRAME && used[3] > 2 * FRAME &&
+      bitmap.rewindToData() == BmpReaderError::Ok) {
+    const GrayCover cover{path, x, y, used[0] + FRAME, used[1] + FRAME, used[2] - 2 * FRAME, used[3] - 2 * FRAME};
+    renderer.setClipRect(cover.clipX, cover.clipY, cover.clipWidth, cover.clipHeight);
+    drawn = renderer.drawBitmap(bitmap, x, y, bitmap.getWidth(), bitmap.getHeight());
+    if (drawn) grayCoverLog->push_back(cover);
+  }
   renderer.setClipRect(clip[0], clip[1], clip[2], clip[3]);
+  return drawn;
+}
+
+void BaseTheme::excludeFromGrayCovers(const int x, const int y, const int width, const int height) {
+  if (grayCoverLog && !grayCoverLog->empty()) grayCoverLog->push_back(GrayCover{{}, 0, 0, x, y, width, height});
+}
+
+bool BaseTheme::redrawGrayCover(const GfxRenderer& renderer, const GrayCover& cover) {
+  if (cover.path.empty()) {
+    renderer.fillRect(cover.clipX, cover.clipY, cover.clipWidth, cover.clipHeight, true);  // no gray
+    return true;
+  }
+  HalFile file;
+  if (!Storage.openFileForRead("HOME", cover.path, file)) return false;
+  Bitmap bitmap(file);
+  bool drawn = false;
+  if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+    const auto clip = renderer.getClipRect();
+    renderer.setClipRect(cover.clipX, cover.clipY, cover.clipWidth, cover.clipHeight);
+    drawn = renderer.drawBitmap(bitmap, cover.x, cover.y, bitmap.getWidth(), bitmap.getHeight());
+    renderer.setClipRect(clip[0], clip[1], clip[2], clip[3]);
+  }
+  file.close();
   return drawn;
 }
 
@@ -568,7 +609,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
           // The card matches the cover aspect except when width-capped; fill
           // the card 1:1 and crop the overflow rather than rescale the dither.
-          drawCoverThumbFill(renderer, bitmap, Rect{bookX, bookY, bookWidth, bookHeight});
+          drawCoverThumbFill(renderer, bitmap, Rect{bookX, bookY, bookWidth, bookHeight}, 0, coverBmpPath);
 
           // Draw border around the card
           renderer.drawRect(bookX, bookY, bookWidth, bookHeight);
@@ -682,6 +723,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       renderer.fillRect(boxX, boxY, boxWidth, boxHeight, bookSelected);
       // Draw border around the box (inverted when selected: white border instead of black)
       renderer.drawRect(boxX, boxY, boxWidth, boxHeight, !bookSelected);
+      excludeFromGrayCovers(boxX, boxY, boxWidth, boxHeight);
     }
 
     for (const auto& line : lines) {
@@ -707,6 +749,7 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
       const int continueBoxY = continueY - continuePadding / 2;
       renderer.fillRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, bookSelected);
       renderer.drawRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, !bookSelected);
+      excludeFromGrayCovers(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight);
       renderer.drawCenteredText(UI_10_FONT_ID, continueY, continueText, !bookSelected);
     } else {
       renderer.drawCenteredText(UI_10_FONT_ID, continueY, tr(STR_CONTINUE_READING), !bookSelected);

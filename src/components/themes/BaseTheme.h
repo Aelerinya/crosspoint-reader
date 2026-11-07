@@ -236,9 +236,26 @@ class BaseTheme {
   // Component drawing methods
   static void setCheckboxRow(freeink::ui::ListItem& item, bool checked);
   static void drawCoverPlaceholder(const GfxRenderer& renderer, Rect rect);
+  // A 2-bit cover drawn in the B/W pass, to be redrawn in the gray planes.
+  // An empty path marks chrome drawn over a cover (clip rect = its bounds),
+  // which the gray pass leaves as drawn.
+  struct GrayCover {
+    std::string path;
+    int x, y;
+    int clipX, clipY, clipWidth, clipHeight;
+  };
+  // Set by the home screen while it renders. A 2-bit cover with a `path` is
+  // then drawn black (the gray-plane base) and recorded here; otherwise 2-bit
+  // covers are ordered-dithered in B/W.
+  static std::vector<GrayCover>* grayCoverLog;
   // Draws a pre-dithered cover thumb 1:1, centered and clipped to fill the
   // slot. Rescaling a dithered bitmap aliases badly, so overflow is cropped.
-  static bool drawCoverThumbFill(const GfxRenderer& renderer, const Bitmap& bitmap, Rect slot, int xOffset = 0);
+  static bool drawCoverThumbFill(const GfxRenderer& renderer, const Bitmap& bitmap, Rect slot, int xOffset = 0,
+                                 const std::string& path = {});
+  // Call after drawing solid chrome over a logged cover.
+  static void excludeFromGrayCovers(int x, int y, int width, int height);
+  // Draws a recorded cover into the current gray plane.
+  static bool redrawGrayCover(const GfxRenderer& renderer, const GrayCover& cover);
   static void drawProgressBar(const GfxRenderer& renderer, Rect rect, size_t current, size_t total);
   void drawBatteryLeft(const GfxRenderer& renderer, Rect rect,
                        bool showPercentage = true) const;  // Left aligned (reader mode)
