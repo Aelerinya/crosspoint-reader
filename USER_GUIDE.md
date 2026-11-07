@@ -123,6 +123,7 @@ The Browse Files screen acts as a file and folder browser. The full path to the 
 * **Open Selection:** Press **Confirm** to open a folder or start reading a selected book. Selecting a `.bmp` file will open the image viewer.
 * **Delete Files or Folders:** Hold and release **Confirm** to delete the selected file or folder. You will be given an option to either confirm or cancel. Multiple files can be selected for deletion in a single operation.
 * **Rename or Move:** Files can be renamed or moved to a different folder from within the browse screen.
+* **Send to Reader:** Hold **Confirm** on a book and choose **Send to Reader** to copy it over Wi-Fi to a nearby reader. On the other reader, open **File Transfer > Create Hotspot** (CrossPoint) or **Upgrade/Transfer > Phone Transfer** (stock Xteink) first. The book goes to its `/Books` folder. If a CrossPoint reader already has the book, you are asked before it is replaced.
 
 ### 3.4 Library Screen
 

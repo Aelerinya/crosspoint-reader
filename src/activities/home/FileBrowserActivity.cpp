@@ -15,6 +15,7 @@
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
+#include "activities/network/SendBookActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
@@ -382,9 +383,10 @@ void FileBrowserActivity::showEntryActions() {
   }
 
   const bool isDirectory = files[nav.selected].back() == '/';
-  static constexpr StrId FILE_OPTIONS[] = {StrId::STR_OPEN, StrId::STR_DELETE, StrId::STR_RENAME};
+  static constexpr StrId FILE_OPTIONS[] = {StrId::STR_OPEN, StrId::STR_DELETE, StrId::STR_RENAME,
+                                           StrId::STR_SEND_TO_READER};
   static constexpr StrId DIRECTORY_OPTIONS[] = {StrId::STR_OPEN, StrId::STR_DELETE};
-  optionPopup.show(StrId::STR_FILENAME, isDirectory ? DIRECTORY_OPTIONS : FILE_OPTIONS, isDirectory ? 2 : 3, 0,
+  optionPopup.show(StrId::STR_FILENAME, isDirectory ? DIRECTORY_OPTIONS : FILE_OPTIONS, isDirectory ? 2 : 4, 0,
                    [this](const int index) {
                      if (index == 0) {
                        activateSelected();
@@ -392,6 +394,8 @@ void FileBrowserActivity::showEntryActions() {
                        deleteSelected();
                      } else if (index == 2) {
                        startRename();
+                     } else if (index == 3) {
+                       sendSelected();
                      }
                    });
   requestUpdate();
@@ -438,6 +442,21 @@ void FileBrowserActivity::deleteSelected() {
     return;
   }
   startActivityForResult(std::move(confirmation), std::move(handler));
+}
+
+void FileBrowserActivity::sendSelected() {
+  if (files.empty() || nav.selected < 0 || nav.selected >= listCount()) return;
+  const std::string entry = files[nav.selected];
+  if (entry.back() == '/') return;
+
+  std::string path = basepath;
+  if (path.back() != '/') path += "/";
+  auto sender = makeUniqueNoThrow<SendBookActivity>(renderer, mappedInput, path + entry);
+  if (!sender) {
+    LOG_ERR("FileBrowser", "OOM: send activity");
+    return;
+  }
+  startActivityForResult(std::move(sender), [](const ActivityResult&) {});
 }
 
 void FileBrowserActivity::startRename() {
