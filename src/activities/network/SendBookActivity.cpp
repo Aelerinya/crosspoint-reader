@@ -173,15 +173,15 @@ void SendBookActivity::showPicker() {
 void SendBookActivity::choose(const int index) {
   peer = networks[index];
   peerFirmware = PeerFirmware::Unknown;
-  if (peer.known) {
-    connectTo(peer.known->password);
+  const bool knownPassword = peer.known && (peer.known->password || !peer.encrypted);
+  if (knownPassword || !peer.encrypted) {
+    connectTo(peer.known ? peer.known->password : nullptr);
     return;
   }
-  if (!peer.encrypted) {
-    connectTo(nullptr);
-    return;
+  {
+    RenderLock lock(*this);
+    state = State::EnteringPassword;
   }
-  state = State::EnteringPassword;
   startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_ENTER_WIFI_PASSWORD), "",
                                                                  64, InputType::Text),
                          [this](const ActivityResult& result) {
@@ -217,12 +217,19 @@ void SendBookActivity::transfer(const bool overwrite) {
                                                   : DEFAULT_PEER_HOST;
 
   // The probe decides the protocol. A default hotspot name is the fallback for a
-  // receiver that does not answer the probe, as before.
+  // receiver that does not answer the probe, as before. The receiver must be
+  // the access point: on a shared network the gateway is the router.
   WifiTransport transport;
   if (peerFirmware == PeerFirmware::Unknown) {
     const PeerFirmware probed = BookSender::detect(transport, host.c_str());
     LOG_DBG("SEND", "%s at %s probed as firmware %d", peer.ssid.c_str(), host.c_str(), static_cast<int>(probed));
-    peerFirmware = probed != PeerFirmware::Unknown ? probed : peer.known ? peer.known->firmware : PeerFirmware::Unknown;
+    if (peer.known) {
+      peerFirmware = probed != PeerFirmware::Unknown ? probed : peer.known->firmware;
+    } else {
+      // Stock firmware cannot rename its hotspot, and a bare 200 on /status
+      // is too weak a sign on someone's router.
+      peerFirmware = probed == PeerFirmware::CrossPoint ? probed : PeerFirmware::Unknown;
+    }
   }
   if (peerFirmware == PeerFirmware::Unknown) {
     WiFi.disconnect();
@@ -367,6 +374,7 @@ void SendBookActivity::render(RenderLock&&) {
   int y = pageHeight / 2 - lineHeight * 2;
 
   renderer.clearScreen();
+  const std::string label = renderer.truncatedText(UI_10_FONT_ID, peerLabel(), textWidth);
   const std::string subtitle = renderer.truncatedText(SMALL_FONT_ID, bookName.c_str(), textWidth);
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SEND_TO_READER),
                  subtitle.c_str());
@@ -387,15 +395,15 @@ void SendBookActivity::render(RenderLock&&) {
       confirmLabel = tr(STR_RETRY);
       break;
     case State::AskReplace:
-      renderer.drawCenteredText(UI_10_FONT_ID, y, peerLabel());
+      renderer.drawCenteredText(UI_10_FONT_ID, y, label.c_str());
       break;
     case State::Connecting:
       renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_CONNECTING));
-      renderer.drawCenteredText(UI_10_FONT_ID, y + lineHeight * 2, peerLabel());
+      renderer.drawCenteredText(UI_10_FONT_ID, y + lineHeight * 2, label.c_str());
       break;
     case State::Sending: {
       renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_SEND_SENDING));
-      renderer.drawCenteredText(UI_10_FONT_ID, y + lineHeight * 3 / 2, peerLabel());
+      renderer.drawCenteredText(UI_10_FONT_ID, y + lineHeight * 3 / 2, label.c_str());
       GUI.drawProgressBar(renderer,
                           Rect{metrics.contentSidePadding, y + lineHeight * 3, textWidth, metrics.progressBarHeight},
                           sentBytes, totalBytes);
@@ -407,7 +415,7 @@ void SendBookActivity::render(RenderLock&&) {
     }
     case State::Done:
       renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_SEND_DONE), true, EpdFontFamily::BOLD);
-      renderer.drawCenteredText(UI_10_FONT_ID, y + lineHeight * 2, peerLabel());
+      renderer.drawCenteredText(UI_10_FONT_ID, y + lineHeight * 2, label.c_str());
       confirmLabel = tr(STR_DONE);
       break;
     case State::Failed: {

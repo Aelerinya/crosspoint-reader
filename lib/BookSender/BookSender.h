@@ -69,7 +69,8 @@ class BookSender {
  public:
   using ProgressFn = void (*)(void* ctx, uint32_t sent, uint32_t total);
 
-  // Probes /api/status, then /status. Each probe opens its own connection.
+  // Probes /api/status (CrossPoint: 200 with its JSON status), then /status
+  // (stock: any 200). Each probe opens its own connection.
   static PeerFirmware detect(BookSendTransport& transport, const char* host, uint16_t port = 80);
 
   // Makes destDir on the receiver, then streams `size` bytes from source.

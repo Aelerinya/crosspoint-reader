@@ -237,6 +237,9 @@ TEST(BookSender, DetectsFirmware) {
   EXPECT_EQ(BookSender::detect(t, "127.0.0.1", stock.port), PeerFirmware::Stock);
   EXPECT_EQ(BookSender::detect(t, "127.0.0.1", cp.port), PeerFirmware::CrossPoint);
   EXPECT_EQ(BookSender::detect(t, "127.0.0.1", other.port), PeerFirmware::Unknown);
+  // A captive portal answering every path is never taken for CrossPoint.
+  FakeServer portal([](const Captured&) { return reply(200, "<html><body>Log in</body></html>"); });
+  EXPECT_NE(BookSender::detect(t, "127.0.0.1", portal.port), PeerFirmware::CrossPoint);
 }
 
 TEST(BookSender, UploadsToStockLikeXteinkWebApp) {

@@ -15,6 +15,7 @@ constexpr const char* BOUNDARY = "----CrossPointBookSender7d3f";
 constexpr uint32_t PROBE_TIMEOUT_MS = 4000;
 // The receiver flushes to SD and clears caches before answering the upload.
 constexpr uint32_t RESPONSE_TIMEOUT_MS = 20000;
+// detect() looks for CrossPoint's first JSON keys within this window.
 constexpr size_t MAX_MESSAGE_LEN = 160;
 
 struct HttpResponse {
@@ -162,8 +163,11 @@ std::string BookSender::headerSafeFileName(const std::string& name) {
 
 PeerFirmware BookSender::detect(BookSendTransport& transport, const char* host, const uint16_t port) {
   HttpResponse resp;
+  // A 200 alone is not enough: captive portals and router pages answer every path.
   if (request(transport, host, port, requestHead("GET", "/api/status", host, nullptr, 0), {}, PROBE_TIMEOUT_MS, resp) &&
-      resp.status == 200) {
+      resp.status == 200 &&
+      (resp.body.find("\"firmwareFamily\"") != std::string::npos ||
+       resp.body.find("\"version\"") != std::string::npos)) {
     return PeerFirmware::CrossPoint;
   }
   resp = {};

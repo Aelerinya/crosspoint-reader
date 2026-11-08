@@ -27,8 +27,9 @@ tests wire it to POSIX sockets and memory buffers.
 
 The sender scans and lists the nearby networks (default reader hotspot names
 first, then by signal) and joins only the one the user picks, asking for a
-password when the network needs one. A receiver whose hotspot has another name
-works too. The sender uses `WiFi.gatewayIP()`, falling back to the address
+password when the network needs one (at most 8 rows: the popup does not
+scroll). A CrossPoint receiver whose hotspot has another name (a fork or a
+future setting) works too; the receiver must still be the access point. The sender uses `WiFi.gatewayIP()`, falling back to the address
 above (`192.168.4.1` for a network with another name).
 
 ## Protocols
@@ -38,8 +39,10 @@ above (`192.168.4.1` for a network with another name).
 After joining, `BookSender::detect()` probes the server (`GET /api/status`
 answering `200` → CrossPoint, else `GET /status` answering `200` → stock). The
 probe decides the protocol. If nothing answers, a default hotspot name still
-decides it (as before the probe was used); on any other network the sender stops
-with "No reader answered on this network".
+decides it (as before the probe was used). On any other network only a verified
+CrossPoint answer counts (`/api/status` returning its JSON, not just any `200`,
+since router pages and captive portals answer every path); otherwise the sender
+stops with "No reader answered on this network".
 
 ### CrossPoint (documented in `docs/webserver-endpoints.md`)
 
