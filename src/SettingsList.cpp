@@ -52,6 +52,11 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
                          "refreshFrequency", StrId::STR_CAT_DISPLAY));
   emit(SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme, homeThemeValues(), "uiTheme",
                          StrId::STR_CAT_DISPLAY));
+  emit(SettingInfo::Enum(StrId::STR_DECK_TRANSITIONS, &CrossPointSettings::deckTransitions,
+                         {StrId::STR_STATE_OFF, StrId::STR_DECK_SHEAR, StrId::STR_DECK_SHEAR_FLASH}, "deckTransitions",
+                         StrId::STR_CAT_DISPLAY));
+  emit(SettingInfo::Toggle(StrId::STR_DECK_COMPANION, &CrossPointSettings::deckCompanion, "deckCompanion",
+                           StrId::STR_CAT_DISPLAY));
   if (!BoardConfig::hasTouch())
     emit(SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
                              StrId::STR_CAT_DISPLAY));

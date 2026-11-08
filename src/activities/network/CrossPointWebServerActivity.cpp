@@ -15,8 +15,12 @@
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
 #include "activities/network/CalibreConnectActivity.h"
+#include "components/Sprite.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
+#include "images/DeckFox.h"
 #include "util/PluginEvents.h"
 #include "util/QrUtils.h"
 #include "util/TaskWatchdog.h"
@@ -391,6 +395,8 @@ void CrossPointWebServerActivity::loop() {
       }
     }
 
+    pollReceived();
+
     // Handle web server requests - maximize throughput with watchdog safety
     if (webServer && webServer->isRunning()) {
       const unsigned long timeSinceLastHandleClient = millis() - lastHandleClientTime;
@@ -440,7 +446,82 @@ void CrossPointWebServerActivity::loop() {
   }
 }
 
+void CrossPointWebServerActivity::pollReceived() {
+  if (!webServer || !webServer->isRunning()) return;
+  std::string name;
+  const auto ws = webServer->getWsUploadStatus();
+  if (ws.lastCompleteAt != 0 && ws.lastCompleteAt != seenWsCompleteAt) {
+    seenWsCompleteAt = ws.lastCompleteAt;
+    name = ws.lastCompleteName;
+  }
+  const bool httpSuccess = webServer->upload.success;
+  if (httpSuccess && !seenHttpSuccess) name = webServer->upload.fileName.c_str();
+  seenHttpSuccess = httpSuccess;
+  if (name.empty()) return;
+  const size_t dot = name.find_last_of('.');
+  if (dot != std::string::npos && dot > 0) name.resize(dot);
+  receivedName = name;
+  receivedAt = millis();
+  requestUpdate();
+}
+
+void CrossPointWebServerActivity::renderDeck() const {
+  // Deck "Online": mode + signal stripe, ONLINE, the address panel, the fox.
+  const auto& m = UITheme::getInstance().getMetrics();
+  const int W = renderer.getScreenWidth();
+  const int H = renderer.getScreenHeight();
+  const int x = m.contentSidePadding;
+  const int w = W - 2 * x;
+  GUI.drawHeader(renderer, Rect{0, m.topPadding, W, m.headerHeight}, tr(STR_FILE_TRANSFER));
+  int y = m.topPadding + m.headerHeight + m.verticalSpacing;
+  const int small = SMALL_FONT_ID;
+  const int lh = renderer.getLineHeight(small);
+  const std::string mode = std::string("// ") + deck::upper(isApMode ? tr(STR_HOTSPOT_MODE) : connectedSSID);
+  char dbm[16] = "";
+  if (!isApMode && WiFi.status() == WL_CONNECTED) snprintf(dbm, sizeof(dbm), "%d DBM", static_cast<int>(WiFi.RSSI()));
+  const int dw = dbm[0] ? deck::trackedWidth(renderer, small, dbm, 2, true) : 0;
+  std::string shown = renderer.truncatedText(small, mode.c_str(), w - dw - 80, EpdFontFamily::BOLD);
+  deck::drawTracked(renderer, small, x, y, shown.c_str(), 3, true, true);
+  const int mw = deck::trackedWidth(renderer, small, shown.c_str(), 3, true);
+  if (dbm[0]) deck::drawTracked(renderer, small, x + w - dw, y, dbm, 2, true, true);
+  deck::hatch(renderer, x + mw + 10, y + (lh - 10) / 2, w - mw - dw - 20, 10);
+  y += lh + 14;
+
+  const int big = deck::displayFont(46);
+  const int cap = 46 * 150 * 70 / 7200;
+  renderer.drawText(big, x, y - deck::displayCapOffset(renderer, 46), "ONLINE");
+  y += cap + 14;
+
+  const std::string host = isApMode ? std::string(AP_HOSTNAME) + ".local" : connectedIP;
+  const int f = UI_12_FONT_ID;
+  const int panelH = renderer.getLineHeight(f) + lh + 30;
+  deck::fillChamfer(renderer, x, y, w, panelH, 14);
+  deck::drawTracked(renderer, f, x + 16, y + 12, host.c_str(), 1, false, true);
+  const std::string alt = isApMode ? "WIFI " + connectedSSID : std::string(AP_HOSTNAME) + ".local";
+  deck::drawTracked(renderer, small, x + 16, y + 12 + renderer.getLineHeight(f) + 4,
+                    renderer.truncatedText(small, deck::upper(alt).c_str(), w - 32).c_str(), 2, false, true);
+  y += panelH + 14;
+
+  const bool fresh = !receivedName.empty();
+  const std::string msg = fresh ? "RECEIVED \xc2\xb7 " + deck::upper(receivedName) : deck::upper(tr(STR_OPEN_URL_HINT));
+  deck::drawTracked(renderer, small, x, y, renderer.truncatedText(small, msg.c_str(), w, EpdFontFamily::BOLD).c_str(),
+                    1, true, true);
+  y += lh + 10;
+
+  const Sprite& fox = fresh ? kFoxNew : kFoxRead;
+  const int foxY = H - m.buttonHintsHeight - 8 - fox.height;
+  if (foxY > y) drawSprite(renderer, fox, (W - fox.width) / 2, foxY);
+  const auto labels = mappedInput.mapLabels(tr(STR_EXIT), "", "", "");
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+
 void CrossPointWebServerActivity::render(RenderLock&&) {
+  if (deck::listsActive() && state == WebServerActivityState::SERVER_RUNNING) {
+    renderer.clearScreen();
+    renderDeck();
+    renderer.displayBuffer();
+    return;
+  }
   // Only render our own UI when server is running
   // Subactivities handle their own rendering
   if (state == WebServerActivityState::SERVER_RUNNING || state == WebServerActivityState::AP_STARTING) {

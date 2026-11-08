@@ -5,6 +5,7 @@
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <HalDisplay.h>
+#include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <Memory.h>
 #include <VectorFontSupport.h>
@@ -19,9 +20,12 @@
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
 #include "components/HeaderBackTapTarget.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckScreens.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
+#include "home/LowBatteryActivity.h"
 #include "library/LibraryListActivity.h"
 #include "network/CrossPointWebServerActivity.h"
 #include "network/UsbDriveActivity.h"
@@ -116,6 +120,8 @@ void ActivityManager::loop() {
     return;
   }
 
+  if (currentActivity && checkLowBattery()) return;
+
   if (currentActivity) {
     if (!currentActivity->isHomeActivity() && mappedInput.wasHomeGesture()) {
       if (currentActivity->handleHomeGesture()) {
@@ -208,6 +214,7 @@ void ActivityManager::loop() {
       RenderLock lock;
 
       if (pendingAction == PendingAction::Replace || pendingAction == PendingAction::ReplaceForSleep) {
+        if (pendingAction == PendingAction::Replace) playDeckTransition();
         // Destroy the current activity
         exitActivity(lock);
         // Clear the stack
@@ -242,6 +249,49 @@ void ActivityManager::loop() {
       xTaskNotify(renderTaskHandle, 1, eIncrement);
     }
   }
+}
+
+// Deck: the low battery modal, once per discharge below 10% (re-armed by charging).
+bool ActivityManager::checkLowBattery() {
+  if (!deck::listsActive()) return false;
+  const auto& name = currentActivity->name;
+  if (name == "Boot" || name == "Sleep" || name == "LowBattery") return false;
+  static unsigned long lastCheck = 0;
+  static bool checked = false;
+  static bool warned = false;
+  if (checked && millis() - lastCheck < 30000) return false;
+  checked = true;
+  lastCheck = millis();
+  if (gpio.isUsbConnected()) {
+    warned = false;
+    return false;
+  }
+  const int percent = powerManager.getBatteryPercentage();
+  if (warned || percent > 10 || percent <= 0) return false;
+  warned = true;
+  pushActivity(std::make_unique<LowBatteryActivity>(renderer, mappedInput, percent));
+  return true;
+}
+
+// Deck screen transitions between the big screens (home, library, files,
+// transfer, settings, reader). Runs under the render lock, before the old
+// activity exits, so the framebuffer still holds the outgoing screen.
+void ActivityManager::playDeckTransition() {
+  if (!deck::listsActive() || SETTINGS.deckTransitions == CrossPointSettings::DECK_TRANSITIONS_OFF) return;
+  if (!currentActivity || !pendingActivity || !renderer.hasFrameBuffer()) return;
+  const auto destination = [](const Activity& a) -> const char* {
+    if (a.isReaderActivity()) return "Read";
+    if (a.name == "Home") return "Home";
+    if (a.name == "Library") return "Library";
+    if (a.name == "FileBrowser") return "Files";
+    if (a.name == "CrossPointWebServer") return "Transfer";
+    if (a.name == "SettingsList" || a.name == "Settings") return "Settings";
+    return nullptr;
+  };
+  const char* to = destination(*pendingActivity);
+  if (!to || !destination(*currentActivity)) return;
+  deck::transitionOut(renderer, to, SETTINGS.deckTransitions == CrossPointSettings::DECK_TRANSITIONS_FLASH);
+  renderer.setBeforeNextDisplay([this] { deck::transitionIn(renderer); });
 }
 
 void ActivityManager::exitActivity(const RenderLock& lock) {

@@ -150,9 +150,19 @@ void EpubReaderChapterSelectionActivity::buildScreen(UiScreen& screen) {
   refreshTocWindow(nav.top);
   props.items = windowItems;
   props.itemsWindowFirst = static_cast<uint16_t>(windowStart);
+  finishDeckList(screen, props);
   screen.list(props);
 }
 
 void EpubReaderChapterSelectionActivity::drawChrome() {
   GUI.drawHeader(renderer, UITheme::getInstance().getHeaderRect(renderer, true, false), tr(STR_SELECT_CHAPTER));
+}
+
+void EpubReaderChapterSelectionActivity::deckListSpec(deck::ListSpec& spec) {
+  spec.style = deck::ListStyle::Display;
+  spec.markedIndex = currentTocIndex;
+  if (epub) {
+    spec.kicker = epub->getTitle();
+    spec.kickerRight = std::to_string(currentTocIndex + 1) + "/" + std::to_string(listCount());
+  }
 }

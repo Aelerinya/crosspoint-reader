@@ -33,6 +33,7 @@ class NetworkModeSelectionActivity final : public UiListActivity {
  private:
   int listCount() const override;
   void buildScreen(UiScreen& screen) override;
+  void deckListSpec(deck::ListSpec& spec) override;
   void activateIndex(int index) override;
   void onBackButton() override { onCancel(); }
   const char* headerTitle() const override;

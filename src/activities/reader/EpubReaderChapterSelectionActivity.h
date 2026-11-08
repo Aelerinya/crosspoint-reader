@@ -28,6 +28,7 @@ class EpubReaderChapterSelectionActivity final : public UiListActivity {
   // Total TOC items count
   int listCount() const override { return epub ? epub->getTocItemsCount() : 0; }
   void buildScreen(UiScreen& screen) override;
+  void deckListSpec(deck::ListSpec& spec) override;
   void activateIndex(int index) override;
   // Back cancels with a result and Confirm activates on RELEASE here, and a
   // missing epub swallows everything past Back.

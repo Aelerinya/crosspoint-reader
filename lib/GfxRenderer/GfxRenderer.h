@@ -3,6 +3,8 @@
 #include <EpdFontFamily.h>
 #include <HalDisplay.h>
 
+#include <functional>
+
 namespace BidiUtils {
 // Paragraph base direction for the Unicode BiDi algorithm (UAX#9).
 // AUTO: scan text for first strong directional character (P2/P3 rules)
@@ -51,6 +53,13 @@ class GfxRenderer {
   RenderMode renderMode;
   mutable bool absoluteGrayPlanes = false;
   mutable bool ditherImagesInBw = false;
+  // Rounded-rect calls draw 45° cuts (top-left and bottom-right) instead of arcs.
+  bool chamferCorners_ = false;
+  mutable std::function<void()> beforeNextDisplay_;
+  void runBeforeNextDisplay() const;
+  // Fills (or strokes, lineWidth > 0) a rect with chamfered corners.
+  void chamferRect(int x, int y, int width, int height, int cut, bool cutTopLeft, bool cutBottomRight, int lineWidth,
+                   Color color) const;
   Orientation orientation;
   bool fadingFix;
   uint8_t* frameBuffer = nullptr;
@@ -315,6 +324,12 @@ class GfxRenderer {
   void drawRoundedRect(int x, int y, int width, int height, int lineWidth, int cornerRadius, bool roundTopLeft,
                        bool roundTopRight, bool roundBottomLeft, bool roundBottomRight, bool state) const;
   void maskRoundedRectOutsideCorners(int x, int y, int width, int height, int radius, Color color = Color::White) const;
+  // Theme hook (Deck): rounded rects become chamfered (radius = cut, capped at 14 px).
+  void setChamferCorners(bool on) { chamferCorners_ = on; }
+  // One-shot hook run at the start of the next displayBuffer*/displayGrayscaleBase
+  // call, before that frame goes out (Deck screen transitions).
+  void setBeforeNextDisplay(std::function<void()> hook) const { beforeNextDisplay_ = std::move(hook); }
+  bool chamferCorners() const { return chamferCorners_; }
   void fillRect(int x, int y, int width, int height, bool state = true) const;
   void fillRectDither(int x, int y, int width, int height, Color color) const;
   void fillRoundedRect(int x, int y, int width, int height, int cornerRadius, Color color) const;

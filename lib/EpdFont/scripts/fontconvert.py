@@ -275,10 +275,10 @@ def load_glyph(code_point):
         face_index += 1
     return None
 
-# FONTCONVERT_UPPER=1: space..underscore only (digits, A-Z, punctuation) for huge display sizes.
+# FONTCONVERT_INTERVALS="0x20-0x5F,0xC0-0xDE": only these code points (huge display sizes).
 # FONTCONVERT_LEAN=1: Latin + punctuation only (theme UI fonts, to fit flash).
-if os.environ.get("FONTCONVERT_UPPER"):
-    intervals = [(0x0020, 0x005F)]
+if os.environ.get("FONTCONVERT_INTERVALS"):
+    intervals = [tuple(int(v, 16) for v in r.split("-")) for r in os.environ["FONTCONVERT_INTERVALS"].split(",")]
 elif os.environ.get("FONTCONVERT_LEAN"):
     intervals = [(0x0020, 0x007E), (0x00A0, 0x017F), (0x0218, 0x021B), (0x2010, 0x2027),
                  (0x2030, 0x203A), (0x20AC, 0x20AC), (0x2122, 0x2122), (0xFB00, 0xFB04), (0xFFFD, 0xFFFD)]

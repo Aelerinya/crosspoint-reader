@@ -1,7 +1,9 @@
 #include "DeckTheme.h"
 
+#include <BoardConfig.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
+#include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <I18n.h>
@@ -26,8 +28,12 @@ namespace deck {
 constexpr int kDisplay13 = 0x0DEC0013;
 constexpr int kDisplay22 = 0x0DEC0022;
 constexpr int kDisplay31 = 0x0DEC0031;
+constexpr int kDisplay46 = 0x0DEC0046;
+constexpr int kDisplay76 = 0x0DEC0076;
 
 int displayFont(const int size) {
+  if (size >= 76) return kDisplay76;
+  if (size >= 46) return kDisplay46;
   if (size >= 31) return kDisplay31;
   if (size >= 22) return kDisplay22;
   return kDisplay13;
@@ -72,8 +78,8 @@ void drawSlant(const GfxRenderer& r, const int x, const int y, const int w, cons
   if (ih <= 0 || w - 2 * t - s <= 0) return;
   const int is = slantShift(ih);
   const int topLeft = x + s - slantShift(t) + t + 1;
-  const int xs[] = {topLeft, x + w - t - 1 - (s - is) / 2 - slantShift(t) / 2, x + w - t - 1 - (s - is) / 2 - is - slantShift(t) / 2,
-                    topLeft - is};
+  const int xs[] = {topLeft, x + w - t - 1 - (s - is) / 2 - slantShift(t) / 2,
+                    x + w - t - 1 - (s - is) / 2 - is - slantShift(t) / 2, topLeft - is};
   const int ys[] = {y + t, y + t, y + h - t - 1, y + h - t - 1};
   r.fillPolygon(xs, ys, 4, !black);
 }
@@ -108,15 +114,48 @@ void hatch(const GfxRenderer& r, const int x, const int y, const int w, const in
   }
 }
 
+// Words are measured and drawn one by one: with tracking, the small UI face's
+// space advance can collapse to nothing next to some capitals.
 int trackedWidth(const GfxRenderer& r, const int fontId, const char* text, const int tracking, const bool bold) {
-  return r.getTextAdvanceX(fontId, text, bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR,
-                           static_cast<int8_t>(tracking));
+  const auto style = bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+  const int space = r.getSpaceWidth(fontId, style) + tracking;
+  int width = 0;
+  std::string word;
+  const std::string all = text ? text : "";
+  size_t i = 0;
+  bool first = true;
+  while (i <= all.size()) {
+    const size_t j = std::min(all.find(' ', i), all.size());
+    word.assign(all, i, j - i);
+    if (!first) width += space;
+    if (!word.empty()) width += r.getTextAdvanceX(fontId, word.c_str(), style, static_cast<int8_t>(tracking));
+    first = false;
+    i = j + 1;
+  }
+  return width;
 }
 
-void drawTracked(const GfxRenderer& r, const int fontId, const int x, const int y, const char* text,
-                 const int tracking, const bool black, const bool bold) {
-  r.drawText(fontId, x, y, text, black, bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR,
-             BidiUtils::BidiBaseDir::AUTO, static_cast<int8_t>(tracking));
+void drawTracked(const GfxRenderer& r, const int fontId, const int x, const int y, const char* text, const int tracking,
+                 const bool black, const bool bold) {
+  const auto style = bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+  const int space = r.getSpaceWidth(fontId, style) + tracking;
+  const std::string all = text ? text : "";
+  std::string word;
+  int cx = x;
+  size_t i = 0;
+  bool first = true;
+  while (i <= all.size()) {
+    const size_t j = std::min(all.find(' ', i), all.size());
+    word.assign(all, i, j - i);
+    if (!first) cx += space;
+    if (!word.empty()) {
+      r.drawText(fontId, cx, y, word.c_str(), black, style, BidiUtils::BidiBaseDir::AUTO,
+                 static_cast<int8_t>(tracking));
+      cx += r.getTextAdvanceX(fontId, word.c_str(), style, static_cast<int8_t>(tracking));
+    }
+    first = false;
+    i = j + 1;
+  }
 }
 
 void segments(const GfxRenderer& r, const int x, const int y, const int w, const int h, const int count,
@@ -134,8 +173,8 @@ void segments(const GfxRenderer& r, const int x, const int y, const int w, const
   }
 }
 
-std::vector<std::string> wrapDisplay(const GfxRenderer& r, const int fontId, const std::string& text,
-                                     const int width, const int maxLines, bool* truncated) {
+std::vector<std::string> wrapDisplay(const GfxRenderer& r, const int fontId, const std::string& text, const int width,
+                                     const int maxLines, bool* truncated) {
   std::vector<std::string> lines;
   const std::string up = upper(text);
   std::string line;
@@ -229,11 +268,13 @@ void DeckTheme::drawHeader(const GfxRenderer& renderer, const Rect rect, const c
       halClock.formatTime(clock, sizeof(clock), SETTINGS.clockFormat == 1)) {
     const int cw = deck::trackedWidth(renderer, UI_10_FONT_ID, clock, 1, true);
     statusX -= cw + 8;
-    deck::drawTracked(renderer, UI_10_FONT_ID, statusX, lineY - 6 - renderer.getLineHeight(UI_10_FONT_ID) + 4, clock,
-                      1, true, true);
+    deck::drawTracked(renderer, UI_10_FONT_ID, statusX, lineY - 6 - renderer.getLineHeight(UI_10_FONT_ID) + 4, clock, 1,
+                      true, true);
   }
-  statusX -= kFoxHead.width + 8;
-  drawSprite(renderer, kFoxHead, statusX, lineY - 4 - kFoxHead.height);
+  if (SETTINGS.deckCompanion) {
+    statusX -= kFoxHead.width + 8;
+    drawSprite(renderer, kFoxHead, statusX, lineY - 4 - kFoxHead.height);
+  }
   statusX -= 6;
 
   // Tab: black, slanted right edge.
@@ -252,8 +293,8 @@ void DeckTheme::drawHeader(const GfxRenderer& renderer, const Rect rect, const c
   renderer.fillRect(left + tabW - 8, lineY, right - (left + tabW - 8), 2, true);
 
   if (subtitle && subtitle[0] && !home) {
-    const std::string sub = renderer.truncatedText(SMALL_FONT_ID, deck::upper(subtitle).c_str(),
-                                                   statusX - (left + tabW + 8));
+    const std::string sub =
+        renderer.truncatedText(SMALL_FONT_ID, deck::upper(subtitle).c_str(), statusX - (left + tabW + 8));
     const int sw = renderer.getTextWidth(SMALL_FONT_ID, sub.c_str());
     renderer.drawText(SMALL_FONT_ID, statusX - sw, lineY - 4 - renderer.getLineHeight(SMALL_FONT_ID), sub.c_str());
   }
@@ -334,8 +375,8 @@ int DeckTheme::getMenuRowHeight(const GfxRenderer& renderer) const {
   return renderer.getLineHeight(deck::displayFont(13)) + 12;
 }
 
-void DeckTheme::drawButtonMenu(GfxRenderer& renderer, const Rect rect, const int buttonCount,
-                               const int selectedIndex, const std::function<std::string(int index)>& buttonLabel,
+void DeckTheme::drawButtonMenu(GfxRenderer& renderer, const Rect rect, const int buttonCount, const int selectedIndex,
+                               const std::function<std::string(int index)>& buttonLabel,
                                const std::function<UIIcon(int index)>&) const {
   const auto& m = ExtraMetrics::deck;
   const int x = rect.x + kSide;
@@ -385,8 +426,7 @@ void DeckTheme::drawButtonMenu(GfxRenderer& renderer, const Rect rect, const int
       const int ys[] = {cy - 6, cy, cy + 6};
       renderer.fillPolygon(xs, ys, 3, false);
     }
-    const std::string label =
-        renderer.truncatedText(font, deck::upper(buttonLabel(i)).c_str(), w - 40 - 14);
+    const std::string label = renderer.truncatedText(font, deck::upper(buttonLabel(i)).c_str(), w - 40 - 14);
     renderer.drawText(font, x + 40, ty, label.c_str(), !sel);
   }
 }
@@ -417,12 +457,226 @@ void DeckTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
     } else {
       deck::drawSlant(renderer, kx, y, keyW, kH, 2, true);
     }
-    // Small face with light tracking: "RESUME" and "SELECT" must fit a ~100 px key.
+    // Arrows as shapes (the trimmed fonts have no ▲▼◀▶); ◂ before Back/Home.
+    const bool ink = !confirm;
+    const std::string up = deck::upper(labels[i]);
+    const int cx = kx + keyW / 2;
+    const int cy = y + kH / 2;
+    const auto tri = [&](const int ax, const int ay, const int bx, const int by, const int qx, const int qy) {
+      const int xs[] = {ax, bx, qx};
+      const int ys[] = {ay, by, qy};
+      renderer.fillPolygon(xs, ys, 3, ink);
+    };
+    if (up == "UP") {
+      tri(cx - 7, cy + 4, cx + 7, cy + 4, cx, cy - 5);
+      continue;
+    }
+    if (up == "DOWN") {
+      tri(cx - 7, cy - 4, cx + 7, cy - 4, cx, cy + 5);
+      continue;
+    }
+    if (up == "LEFT") {
+      tri(cx + 4, cy - 7, cx + 4, cy + 7, cx - 5, cy);
+      continue;
+    }
+    if (up == "RIGHT") {
+      tri(cx - 4, cy - 7, cx - 4, cy + 7, cx + 5, cy);
+      continue;
+    }
+    const bool back = i == 0 && (up == "BACK" || up == "HOME" || up == "EXIT");
     const int font = SMALL_FONT_ID;
-    const std::string t = renderer.truncatedText(font, deck::upper(labels[i]).c_str(), keyW - 14, EpdFontFamily::BOLD);
-    const int tw = deck::trackedWidth(renderer, font, t.c_str(), 1, true);
-    deck::drawTracked(renderer, font, kx + (keyW - tw) / 2, y + (kH - renderer.getLineHeight(font)) / 2, t.c_str(), 1,
-                      !confirm, true);
+    const int markW = back ? 10 : 0;
+    const std::string t = renderer.truncatedText(font, up.c_str(), keyW - 14 - markW, EpdFontFamily::BOLD);
+    const int tw = deck::trackedWidth(renderer, font, t.c_str(), 1, true) + markW;
+    const int tx = kx + (keyW - tw) / 2;
+    if (back) tri(tx + 5, cy - 4, tx + 5, cy + 4, tx, cy);
+    deck::drawTracked(renderer, font, tx + markW, y + (kH - renderer.getLineHeight(font)) / 2, t.c_str(), 1, ink, true);
   }
   renderer.setOrientation(orig);
+}
+
+// ================================================================ popups
+
+namespace {
+constexpr int kToastSlant = 10;
+constexpr int kToastPadX = 22;
+constexpr int kToastPadY = 8;
+
+void fillToastShape(const GfxRenderer& r, const int x, const int y, const int w, const int h, const bool black) {
+  const int xs[] = {x + kToastSlant, x + w, x + w - kToastSlant, x};
+  const int ys[] = {y, y, y + h, y + h};
+  r.fillPolygon(xs, ys, 4, black);
+}
+
+// Opening screen geometry, kept so fillPopupProgress can update its bar.
+Rect gOpeningBar{};
+}  // namespace
+
+Rect DeckTheme::drawPopup(const GfxRenderer& renderer, const char* message) const {
+  gOpeningBar = Rect{};
+  const std::string text = deck::upper(message ? message : "");
+  const int font = SMALL_FONT_ID;
+  const int maxW = renderer.getScreenWidth() - 2 * kSide;
+  const std::string shown = renderer.truncatedText(font, text.c_str(), maxW - 2 * kToastPadX, EpdFontFamily::BOLD);
+  const int tw = deck::trackedWidth(renderer, font, shown.c_str(), 2, true);
+  const int lineH = renderer.getLineHeight(font);
+  const int w = tw + 2 * kToastPadX;
+  const int h = lineH + 2 * kToastPadY + 10;  // room for an optional progress strip
+  const int x = (renderer.getScreenWidth() - w) / 2;
+  const int y = renderer.getScreenHeight() - 66 - h;
+  // White halo so the toast reads over page text.
+  fillToastShape(renderer, x - 4, y - 3, w + 8, h + 6, false);
+  fillToastShape(renderer, x, y, w, h, true);
+  deck::drawTracked(renderer, font, x + kToastPadX, y + kToastPadY, shown.c_str(), 2, false, true);
+  renderer.displayBuffer();
+  return Rect{x, y, w, h};
+}
+
+void DeckTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const {
+  const int p = std::clamp(progress, 0, 100);
+  if (gOpeningBar.width > 0) {
+    const Rect& b = gOpeningBar;
+    renderer.fillRect(b.x - 4, b.y, b.width + 8, b.height, false);
+    deck::segments(renderer, b.x, b.y, b.width, b.height, 6, std::max(1, (p * 6 + 50) / 100));
+  } else {
+    const int sx = layout.x + kToastPadX;
+    const int sw = layout.width - 2 * kToastPadX;
+    const int sy = layout.y + layout.height - kToastPadY - 6;
+    deck::segments(renderer, sx, sy, sw, 6, 10, (p + 5) / 10, false);
+  }
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+}
+
+Rect DeckTheme::drawBookOpening(const GfxRenderer& renderer, const char* title) const {
+  const int W = renderer.getScreenWidth();
+  const int H = renderer.getScreenHeight();
+  constexpr int kPad = 24;
+  renderer.clearScreen();
+  int y = std::min(120, H / 7);
+  deck::drawTracked(renderer, SMALL_FONT_ID, kPad, y, "// OPENING", 3, true, true);
+  y += renderer.getLineHeight(SMALL_FONT_ID) + 10;
+
+  const int size = 31;
+  const int font = deck::displayFont(size);
+  const auto lines = deck::wrapDisplay(renderer, font, title ? title : "", W - 2 * kPad, 3);
+  const int lh = deck::displayLineStep(size);
+  int ty = y - deck::displayCapOffset(renderer, size);
+  for (const auto& l : lines) {
+    renderer.drawText(font, kPad, ty, l.c_str());
+    ty += lh;
+  }
+  y += static_cast<int>(lines.size()) * lh + 30;
+  if (y + kFoxRun.height < H - 110) drawSprite(renderer, kFoxRun, (W - kFoxRun.width) / 2, y);
+
+  const int msgY = H - 40 - renderer.getLineHeight(SMALL_FONT_ID);
+  const int barY = msgY - 20;
+  gOpeningBar = Rect{kPad, barY, W - 2 * kPad, 10};
+  deck::segments(renderer, kPad, barY, W - 2 * kPad, 10, 6, 1);
+  deck::drawTracked(renderer, SMALL_FONT_ID, kPad, msgY, deck::upper(tr(STR_INDEXING)).c_str(), 2, true, true);
+  renderer.displayBuffer();
+  return Rect{0, 0, W, H};
+}
+
+// ================================================================ reader status bar
+
+void DeckTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
+                              const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
+                              const bool fillMargin, const bool isPageBookmarked, const bool pageCountEstimated) const {
+  const auto& m = ExtraMetrics::deck;
+  int mTop, mRight, mBottom, mLeft;
+  renderer.getOrientedViewableTRBL(&mTop, &mRight, &mBottom, &mLeft);
+  const auto sb = SETTINGS.statusBarSpec();
+  const bool textLane = sb.textLaneVisible(halClock.isAvailable());
+  const int corner = BoardConfig::ACTIVE.bottomCornerRadius != 0 ? BoardConfig::ACTIVE.bottomCornerRadius
+                                                                 : BoardConfig::ACTIVE.cornerRadius;
+  const int left = std::max(mLeft, corner) + 28;
+  const int right = renderer.getScreenWidth() - std::max(mRight, corner) - 28;
+  const int bottom = renderer.getScreenHeight() - mBottom - paddingBottom + BoardConfig::ACTIVE.statusBarOffsetY;
+  const int font = SMALL_FONT_ID;
+  const int lineH = renderer.getLineHeight(font);
+  const int textY = bottom - 4 - lineH;
+  (void)fillMargin;
+
+  // Progress line: 2 px rule, 6 px filled run, 12 px diamond at the position.
+  if (sb.showsProgressBar()) {
+    float pct;
+    if (sb.progressBarMode == CrossPointSettings::STATUS_BAR_PROGRESS_BAR::BOOK_PROGRESS) {
+      pct = bookProgress;
+    } else {
+      pct = pageCount > 0 ? 100.0f * currentPage / pageCount : 0;
+    }
+    pct = std::clamp(pct, 0.0f, 100.0f);
+    const int laneTop = textLane ? textY - m.progressBarMarginTop - sb.progressBarHeightPx : bottom - 14;
+    const int cy = laneTop + 6;
+    const int w = right - left;
+    const int px = left + static_cast<int>(w * pct / 100.0f);
+    renderer.fillRect(left, cy - 1, w, 2, true);
+    if (px > left) renderer.fillRect(left, cy - 3, px - left, 6, true);
+    const int xs[] = {px, px + 6, px, px - 6};
+    const int ys[] = {cy - 6, cy, cy + 6, cy};
+    renderer.fillPolygon(xs, ys, 4, true);
+  }
+  if (!textLane) return;
+
+  // Left: page n/N (+ "~" while the count is an estimate).
+  int lx = left;
+  if (sb.showChapterPageCount) {
+    char pages[24];
+    snprintf(pages, sizeof(pages), "%s%d/%d", pageCountEstimated ? "~" : "", currentPage, pageCount);
+    deck::drawTracked(renderer, font, lx, textY, pages, 1, true, true);
+    lx += deck::trackedWidth(renderer, font, pages, 1, true) + 14;
+  }
+
+  // Right: clock, battery, book %.
+  int rx = right;
+  const auto drawRight = [&](const char* t) {
+    const int w = deck::trackedWidth(renderer, font, t, 1, true);
+    rx -= w;
+    deck::drawTracked(renderer, font, rx, textY, t, 1, true, true);
+    rx -= 14;
+  };
+  if (sb.showBookProgressPercent) {
+    char pct[8];
+    snprintf(pct, sizeof(pct), "%.0f%%", bookProgress);
+    drawRight(pct);
+  }
+  if (sb.showBattery) {
+    const int percent = std::min<int>(100, powerManager.getBatteryPercentage());
+    if (sb.showBatteryPercent) {
+      char bat[8];
+      snprintf(bat, sizeof(bat), "%d%%", percent);
+      drawRight(bat);
+    }
+    rx -= 4 * 8 + 2;
+    batteryCells(renderer, rx, textY + (lineH - 12) / 2, percent);
+    rx -= 12;
+  }
+  if (sb.showsClock() && halClock.isAvailable()) {
+    char clock[10];
+    if (halClock.formatTime(clock, sizeof(clock), sb.clock12h)) drawRight(clock);
+  }
+
+  // Middle: bookmark mark, else the title.
+  std::string mid;
+  if (isPageBookmarked) {
+    mid = "MARKED";
+  } else if (!title.empty()) {
+    mid = deck::upper(title);
+  }
+  if (!mid.empty() && rx - lx > 40) {
+    const std::string t = renderer.truncatedText(font, mid.c_str(), rx - lx - 20, EpdFontFamily::BOLD);
+    const int tw = deck::trackedWidth(renderer, font, t.c_str(), 1, true);
+    int tx = (left + right - tw) / 2;
+    tx = std::clamp(tx, lx + 10, std::max(lx + 10, rx - tw - 10));
+    int markW = 0;
+    if (isPageBookmarked) {
+      // ◆ before the label.
+      const int cy = textY + lineH / 2;
+      const int xs[] = {tx, tx + 5, tx, tx - 5};
+      const int ys[] = {cy - 5, cy, cy + 5, cy};
+      renderer.fillPolygon(xs, ys, 4, true);
+      markW = 12;
+    }
+    deck::drawTracked(renderer, font, tx + markW, textY - textYOffset, t.c_str(), 1, true, true);
+  }
 }

@@ -42,6 +42,8 @@ class ActivityManager {
   MappedInputManager& mappedInput;
   std::vector<std::unique_ptr<Activity>> stackActivities;
   std::unique_ptr<Activity> currentActivity;
+  void playDeckTransition();
+  bool checkLowBattery();
 
   void exitActivity(const RenderLock& lock);
 

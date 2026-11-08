@@ -1,5 +1,8 @@
 #pragma once
 
+#include <functional>
+#include <string>
+
 #include "MappedInputManager.h"
 #include "activities/Activity.h"
 #include "components/UiAppHost.h"
@@ -15,8 +18,12 @@ class EpubReaderPercentSelectionActivity final : public Activity, private UiAppH
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  // Deck theme: names the chapter a percent lands in (the "lands in" card).
+  void setLandsIn(std::function<std::string(int percent)> fn) { landsIn = std::move(fn); }
 
  private:
+  std::function<std::string(int)> landsIn;
+  void renderDeck();
   // The UiAppHost app hosts the shared slider dialog popup (capsule slider,
   // [-] [+] [Confirm] buttons) drawn over the screen underneath.
   static void percentScreen(UiScreen& screen, void* user);

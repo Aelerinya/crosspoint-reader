@@ -43,6 +43,13 @@ class CrossPointWebServerActivity final : public Activity {
   // Server status
   std::string connectedIP;
   std::string connectedSSID;  // For STA mode: network name, For AP mode: AP name
+  // Deck theme: last book that arrived over the network (fox.new + its name).
+  std::string receivedName;
+  unsigned long receivedAt = 0;
+  unsigned long seenWsCompleteAt = 0;
+  bool seenHttpSuccess = false;
+  void pollReceived();
+  void renderDeck() const;
 
   // Performance monitoring
   unsigned long lastHandleClientTime = 0;

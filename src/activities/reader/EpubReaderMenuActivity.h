@@ -63,6 +63,7 @@ class EpubReaderMenuActivity final : public UiListActivity {
 
   int listCount() const override { return static_cast<int>(menuItems.size()); }
   void buildScreen(UiScreen& screen) override;
+  void deckListSpec(deck::ListSpec& spec) override { spec.style = deck::ListStyle::Menu; }
   void activateIndex(int index) override;
   // Popup input runs before any button or touch handling.
   bool handleCustomInput() override;

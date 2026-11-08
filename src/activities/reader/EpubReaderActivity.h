@@ -24,6 +24,11 @@ class EpubReaderActivity final : public ReaderActivity {
   std::shared_ptr<Epub> epub;
   std::unique_ptr<Section> section = nullptr;
   int currentSpineIndex = 0;
+  // Deck theme Chapter Clear interstitial: spine left by a forward page turn
+  // (-1 = none), and when the next page may replace the interstitial.
+  int chapterClearFromSpine = -1;
+  unsigned long chapterClearUntil = 0;
+  void showChapterClear();
   int nextPageNumber = 0;
   std::optional<uint16_t> pendingPageJump;
   std::string pendingAnchor;

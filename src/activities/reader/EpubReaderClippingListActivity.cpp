@@ -202,6 +202,7 @@ void EpubReaderClippingListActivity::buildScreen(UiScreen& screen) {
   props.items = rowItems.data();
   props.itemsWindowFirst = static_cast<uint16_t>(windowStart);
   props.itemsWindowCount = static_cast<uint16_t>(windowCount);
+  finishDeckList(screen, props);
   screen.list(props);
 }
 

@@ -909,6 +909,7 @@ void LibraryListActivity::buildRows(UiScreen& screen) {
 #if FREEINK_CAP_TOUCH
   configureSwipeDelete(screen, props);
 #endif
+  finishDeckList(screen, props);
   screen.list(props);
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
   const int next = nav.drawnRows;
@@ -943,6 +944,12 @@ void LibraryListActivity::formatAuthorHeading(const std::string& author, std::st
 
 void LibraryListActivity::buildHeader(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
+  if (deck::listsActive()) {
+    // Deck: the theme's tab header (search stays on the Left button).
+    GUI.drawHeader(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight},
+                   headerTitle());
+    return;
+  }
   const auto& theme = screen.theme();
   fui::HeaderProps header;
   header.title = headerTitle();
@@ -1041,7 +1048,8 @@ const char* LibraryListActivity::headerTitle() const {
 }
 
 void LibraryListActivity::drawHoldHelp() const {
-  if (mappedInput.hasTouch() || groupsCollapsed) return;
+  // Deck: labels only, no help text under the controls.
+  if (mappedInput.hasTouch() || groupsCollapsed || deck::listsActive()) return;
   const char* help = nullptr;
   if (tabsFocused() && !degraded)
     help = tr(STR_LIBRARY_HOLD_SORT);

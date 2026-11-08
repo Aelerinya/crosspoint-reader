@@ -56,6 +56,8 @@
 #include "clippings/ClippingText.h"
 #include "clippings/ClippingsManager.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckScreens.h"
 #include "fontIds.h"
 #include "util/BookmarkUtil.h"
 #include "util/ButtonNavigator.h"
@@ -257,7 +259,17 @@ bool EpubReaderActivity::loadBook() {
   const bool uncached = !Storage.exists((loadedEpub->getCachePath() + "/book.bin").c_str());
   if (uncached) {
     disableFastInitialRefresh();
-    GUI.drawPopup(renderer, tr(STR_INDEXING));
+    std::string title;
+    for (const auto& book : RECENT_BOOKS.getBooks()) {
+      if (book.path == bookPath) title = book.title;
+    }
+    if (title.empty()) {
+      const size_t slash = bookPath.find_last_of('/');
+      title = bookPath.substr(slash == std::string::npos ? 0 : slash + 1);
+      const size_t dot = title.find_last_of('.');
+      if (dot != std::string::npos) title.resize(dot);
+    }
+    GUI.drawBookOpening(renderer, title.c_str());
   }
 
   bool loaded;
@@ -1228,15 +1240,22 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     case EpubReaderMenuActivity::MenuAction::GO_TO_PERCENT: {
       const int initialPercent = bookPercentFor(chapterPosition());
-      startActivityForResult(
-          std::make_unique<EpubReaderPercentSelectionActivity>(renderer, mappedInput, initialPercent),
-          [this](const ActivityResult& result) {
-            if (result.isCancelled) {
-              openReaderMenu();
-            } else {
-              jumpToPercent(std::get<PercentResult>(result.data).percent);
-            }
-          });
+      auto percentActivity =
+          std::make_unique<EpubReaderPercentSelectionActivity>(renderer, mappedInput, initialPercent);
+      percentActivity->setLandsIn([this](const int percent) -> std::string {
+        if (!epub || epub->getBookSize() == 0) return {};
+        const size_t target = epub->getBookSize() / 100 * static_cast<size_t>(clampPercent(percent));
+        const int spine = epub->getSpineIndexForSize(target);
+        const int toc = spine >= 0 ? epub->getTocIndexForSpineIndex(spine) : -1;
+        return toc >= 0 ? epub->getTocItem(toc).title : std::string();
+      });
+      startActivityForResult(std::move(percentActivity), [this](const ActivityResult& result) {
+        if (result.isCancelled) {
+          openReaderMenu();
+        } else {
+          jumpToPercent(std::get<PercentResult>(result.data).percent);
+        }
+      });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::DICTIONARY: {
@@ -1455,6 +1474,7 @@ bool EpubReaderActivity::pageTurn(bool isForwardTurn) {
     } else if (currentSpineIndex + 1 < epub->getSpineItemsCount()) {
       RenderLock lock;
       nextPageNumber = 0;
+      if (deck::listsActive()) chapterClearFromSpine = currentSpineIndex;
       currentSpineIndex++;
       section.reset();
       lastPageTurnTime = millis();
@@ -1480,6 +1500,20 @@ bool EpubReaderActivity::pageTurn(bool isForwardTurn) {
     }
   }
   return false;
+}
+
+void EpubReaderActivity::showChapterClear() {
+  const int from = chapterClearFromSpine;
+  chapterClearFromSpine = -1;
+  const int fromToc = epub->getTocIndexForSpineIndex(from);
+  const int toToc = epub->getTocIndexForSpineIndex(currentSpineIndex);
+  // Only between chapters: split spine files of one chapter turn pages as usual.
+  if (fromToc < 0 || toToc < 0 || fromToc == toToc) return;
+  const std::string finished = epub->getTocItem(fromToc).title;
+  const std::string next = epub->getTocItem(toToc).title;
+  deck::drawChapterClear(renderer, epub->getTitle().c_str(), finished.c_str(), next.c_str());
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  chapterClearUntil = millis() + 1000;
 }
 
 bool EpubReaderActivity::skipPages(int amount) {
@@ -1673,6 +1707,8 @@ void EpubReaderActivity::renderBook() {
   buildViewportHeight = viewportHeight;
 
   const ReaderRenderSpec renderSpec = SETTINGS.readerRenderSpec(viewportWidth, viewportHeight);
+
+  if (!section && chapterClearFromSpine >= 0) showChapterClear();
 
   if (!section) {
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
@@ -1940,6 +1976,13 @@ void EpubReaderActivity::renderBook() {
     // stored-BW slot. Release the old page snapshot before renderContents()
     // needs that slot, then snapshot the newly rendered page below.
     discardOverlayPage();
+
+    // Chapter Clear stays up ~1 s in all, chapter build included; input is ignored meanwhile.
+    while (chapterClearUntil != 0 && static_cast<long>(chapterClearUntil - millis()) > 0) delay(20);
+    if (chapterClearUntil != 0) {
+      chapterClearUntil = 0;
+      pagesUntilFullRefresh = 1;  // clear the interstitial's ghost
+    }
 
     const auto start = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);

@@ -18,6 +18,7 @@ class XtcReaderChapterSelectionActivity final : public UiListActivity {
 
   int listCount() const override { return xtc ? static_cast<int>(xtc->getChapters().size()) : 0; }
   void buildScreen(UiScreen& screen) override;
+  void deckListSpec(deck::ListSpec& spec) override { spec.style = deck::ListStyle::Display; }
   void activateIndex(int index) override;
   // Back cancels with a result and Confirm activates on RELEASE here; a `!xtc`
   // guard consumes the pass after Back so nothing else runs without a book.

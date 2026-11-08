@@ -6,6 +6,7 @@
 
 #include "activities/Activity.h"
 #include "components/UiAppHost.h"
+#include "components/themes/extra/DeckList.h"
 #include "util/ButtonNavigator.h"
 
 // Base for activities hosting a single FreeInkUI list screen. UiAppHost owns
@@ -76,6 +77,12 @@ class UiListActivity : public Activity, protected UiAppHost {
   // Button hints, drawn after the app renders. Default: Back/Select/Up/Down.
   virtual void drawFooter();
 
+  // --- Deck theme ------------------------------------------------------------
+  // On the Deck theme (button boards) syncListViewport draws the rows itself
+  // with deck::drawList from the screen's ListProps; screens pick the row
+  // style, kicker line and companion here.
+  virtual void deckListSpec(deck::ListSpec& spec) {}
+
   // --- helpers ---------------------------------------------------------------
   // Measure visibleRows for the screen band, apply follow-on-build, clamp the
   // viewport, and write selection/viewport into props. Call from buildScreen
@@ -83,6 +90,9 @@ class UiListActivity : public Activity, protected UiAppHost {
   // SDK resolves fonts, content padding and touch minimum before measuring.
   // selectionOffset reserves leading ring entries such as the tab bar.
   void syncListViewport(UiScreen& screen, freeink::ui::ListProps& props, int selectionOffset = 0);
+  // Screens that attach props.items after syncListViewport call this right
+  // before screen.list(props) (no-op unless the Deck theme draws the list).
+  void finishDeckList(UiScreen& screen, freeink::ui::ListProps& props);
   // Move the selection to index and pull the viewport to it.
   void moveSelectionTo(int index);
 
@@ -106,4 +116,10 @@ class UiListActivity : public Activity, protected UiAppHost {
 #endif
 
   const bool wantsTouchLongPress;
+  // Draws the list rows with deck::drawList and empties props for FreeInkUI.
+  void drawDeckList(UiScreen& screen, freeink::ui::ListProps& props, int selectionOffset);
+  void drawDeckListViewport(UiScreen& screen, int selectionOffset);
+  // Set by syncListViewport on the Deck theme when props had no rows yet.
+  bool deckListPending = false;
+  int deckSelectionOffset = 0;
 };

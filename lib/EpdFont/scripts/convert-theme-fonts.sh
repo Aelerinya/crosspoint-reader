@@ -22,7 +22,7 @@ EXTRA=(
 
 # name  regular-file  bold-file  ui10-size  ui12-size  small-size
 THEMES=(
-  "deck ChakraPetch/ChakraPetch-Medium.ttf ChakraPetch/ChakraPetch-Bold.ttf 11 13 9"
+  "deck ChakraPetch/ChakraPetch-Medium.ttf ChakraPetch/ChakraPetch-Bold.ttf 8 9 7"
 )
 
 want="$*"
@@ -48,6 +48,13 @@ if [[ -z "$want" || " $want " == *" deck "* ]]; then
     FONTCONVERT_LEAN=1 $PY fontconvert.py deck_display_$size $size "$SAIRA" $SRC/Ubuntu/Ubuntu-Bold.ttf \
       --2bit --compress > "$OUT/deck_display_$size.h"
   done
-  FONTCONVERT_UPPER=1 $PY fontconvert.py deck_display_31 31 "$SAIRA" --2bit --compress > "$OUT/deck_display_31.h"
+  # Upper-case only: ASCII digits/A-Z/punctuation, Latin-1 capitals, ellipsis.
+  FONTCONVERT_INTERVALS=0x20-0x5F,0xC0-0xDE,0x2026-0x2026 $PY fontconvert.py deck_display_31 31 "$SAIRA" \
+    $SRC/Ubuntu/Ubuntu-Bold.ttf --2bit --compress > "$OUT/deck_display_31.h"
+  FONTCONVERT_INTERVALS=0x20-0x5F $PY fontconvert.py deck_display_46 46 "$SAIRA" --2bit --compress \
+    > "$OUT/deck_display_46.h"
+  # Digits and % for the Go to % screen.
+  FONTCONVERT_INTERVALS=0x25-0x25,0x30-0x39 $PY fontconvert.py deck_display_76 76 "$SAIRA" --2bit --compress \
+    > "$OUT/deck_display_76.h"
   echo "Generated deck display fonts"
 fi

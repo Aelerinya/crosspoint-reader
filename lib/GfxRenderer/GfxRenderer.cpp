@@ -945,6 +945,45 @@ void GfxRenderer::drawArc(const int maxRadius, const int cx, const int cy, const
   }
 };
 
+namespace {
+constexpr int kMaxChamfer = 14;
+// Cut depth of a chamfered corner `cut` at row `row` from that corner's edge.
+inline int chamferInset(const int cut, const int row) { return row < cut ? cut - row : 0; }
+}  // namespace
+
+void GfxRenderer::chamferRect(const int x, const int y, const int width, const int height, const int cut,
+                              const bool cutTopLeft, const bool cutBottomRight, const int lineWidth,
+                              const Color color) const {
+  if (width <= 0 || height <= 0 || color == Color::Clear) return;
+  const int c = std::min({cut, kMaxChamfer, width / 2, height / 2});
+  const int ctl = cutTopLeft ? c : 0;
+  const int cbr = cutBottomRight ? c : 0;
+  // Inner outline for strokes: inset by t; a 45° edge's corner moves by ~0.41 t.
+  const int t = lineWidth;
+  const int ic = std::max(0, c - (t * 41 + 50) / 100);
+  const int ictl = cutTopLeft ? ic : 0;
+  const int icbr = cutBottomRight ? ic : 0;
+  for (int row = 0; row < height; ++row) {
+    const int left = chamferInset(ctl, row);
+    const int right = width - chamferInset(cbr, height - 1 - row);
+    if (right <= left) continue;
+    if (t <= 0 || row < t || row >= height - t) {
+      fillRectDither(x + left, y + row, right - left, 1, color);
+      continue;
+    }
+    const int ir = row - t;
+    const int ih = height - 2 * t;
+    const int innerLeft = t + chamferInset(ictl, ir);
+    const int innerRight = t + (width - 2 * t) - chamferInset(icbr, ih - 1 - ir);
+    if (innerRight <= innerLeft) {
+      fillRectDither(x + left, y + row, right - left, 1, color);
+      continue;
+    }
+    if (innerLeft > left) fillRectDither(x + left, y + row, innerLeft - left, 1, color);
+    if (right > innerRight) fillRectDither(x + innerRight, y + row, right - innerRight, 1, color);
+  }
+}
+
 // Border is inside the rectangle, rounded corners
 void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, const int height, const int lineWidth,
                                   const int cornerRadius, bool state) const {
@@ -956,6 +995,11 @@ void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, con
                                   const int cornerRadius, bool roundTopLeft, bool roundTopRight, bool roundBottomLeft,
                                   bool roundBottomRight, bool state) const {
   if (lineWidth <= 0 || width <= 0 || height <= 0) {
+    return;
+  }
+  if (chamferCorners_ && cornerRadius > 0) {
+    chamferRect(x, y, width, height, cornerRadius, roundTopLeft, roundBottomRight, lineWidth,
+                state ? Color::Black : Color::White);
     return;
   }
 
@@ -1232,6 +1276,15 @@ void GfxRenderer::maskRoundedRectOutsideCorners(const int x, const int y, const 
   if (radius <= 0 || color == Color::Clear) {
     return;
   }
+  if (chamferCorners_) {
+    // Paint the two cut-off triangles.
+    const int c = std::min({radius, kMaxChamfer, width / 2, height / 2});
+    for (int row = 0; row < c; ++row) {
+      fillRectDither(x, y + row, c - row, 1, color);
+      fillRectDither(x + width - (c - row), y + height - 1 - row, c - row, 1, color);
+    }
+    return;
+  }
 
   const int rr = radius - 1;
   const int rr2 = rr * rr;
@@ -1310,6 +1363,10 @@ void GfxRenderer::fillRoundedRect(const int x, const int y, const int width, con
                                   bool roundTopLeft, bool roundTopRight, bool roundBottomLeft, bool roundBottomRight,
                                   const Color color) const {
   if (width <= 0 || height <= 0) {
+    return;
+  }
+  if (chamferCorners_ && cornerRadius > 0) {
+    chamferRect(x, y, width, height, cornerRadius, roundTopLeft, roundBottomRight, 0, color);
     return;
   }
 
@@ -1761,7 +1818,15 @@ HalDisplay::RefreshMode GfxRenderer::applyPromotedRefresh(const HalDisplay::Refr
   return promotedRefresh_;
 }
 
+void GfxRenderer::runBeforeNextDisplay() const {
+  if (!beforeNextDisplay_) return;
+  auto hook = std::move(beforeNextDisplay_);
+  beforeNextDisplay_ = nullptr;
+  hook();
+}
+
 void GfxRenderer::displayBuffer(HalDisplay::RefreshMode refreshMode) const {
+  runBeforeNextDisplay();
   auto elapsed = millis() - start_ms;
   LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
   refreshMode = applyPromotedRefresh(refreshMode);
@@ -1769,6 +1834,7 @@ void GfxRenderer::displayBuffer(HalDisplay::RefreshMode refreshMode) const {
 }
 
 void GfxRenderer::displayBufferAsync(HalDisplay::RefreshMode refreshMode) const {
+  runBeforeNextDisplay();
   refreshMode = applyPromotedRefresh(refreshMode);
   // The async path has no turn-off-screen hook, which the sunlight fading fix
   // relies on; keep those users on the blocking path.
@@ -2410,11 +2476,13 @@ size_t GfxRenderer::getBufferSize() const { return frameBufferSize; }
 // void GfxRenderer::grayscaleRevert() const { display.grayscaleRevert(); }
 
 void GfxRenderer::displayGrayscaleBase(HalDisplay::RefreshMode fallback) const {
+  runBeforeNextDisplay();
   absoluteGrayPlanes = false;
   display.displayGrayscaleBase(applyPromotedRefresh(fallback), fadingFix);
 }
 
 bool GfxRenderer::displayGrayscaleBase(HalDisplay::GrayscaleMode mode, HalDisplay::RefreshMode fallback) const {
+  runBeforeNextDisplay();
   absoluteGrayPlanes = false;
   if (!display.displayGrayscaleBase(mode, promotedRefreshPending_ ? promotedRefresh_ : fallback, fadingFix))
     return false;

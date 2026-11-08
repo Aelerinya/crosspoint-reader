@@ -14,10 +14,10 @@
 #include "RecentBooksStore.h"
 #include "components/CoverGridHomeUi.h"
 #include "components/themes/BaseTheme.h"
-#include "components/themes/lyra/Lyra3CoversTheme.h"
-#include "components/themes/lyra/LyraTheme.h"
 #include "components/themes/ThemeFonts.h"
 #include "components/themes/extra/DeckTheme.h"
+#include "components/themes/lyra/Lyra3CoversTheme.h"
+#include "components/themes/lyra/LyraTheme.h"
 #include "components/themes/roundedraff/RoundedRaffTheme.h"
 
 UITheme UITheme::instance;
@@ -84,7 +84,10 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       currentMetrics = &BaseMetrics::values;
       break;
   }
-  if (fontRenderer) applyThemeUiFonts(*fontRenderer, type);
+  if (fontRenderer) {
+    applyThemeUiFonts(*fontRenderer, type);
+    fontRenderer->setChamferCorners(type == CrossPointSettings::UI_THEME::DECK);
+  }
   metricsValid = false;
 }
 

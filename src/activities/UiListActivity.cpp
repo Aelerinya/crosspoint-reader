@@ -209,7 +209,87 @@ void UiListActivity::navigateButtons() {
   });
 }
 
+void UiListActivity::drawDeckListViewport(UiScreen& screen, const int selectionOffset) {
+  deck::ListSpec spec;
+  deckListSpec(spec);
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const fui::Rect body = screen.body();
+  const Rect area{body.x + metrics.contentSidePadding, body.y, body.width - 2 * metrics.contentSidePadding,
+                  body.height};
+  auto& n = activeNav();
+  int top = n.top;
+  const int visible = deck::listViewport(renderer, area, spec, listCount(), n.selected - selectionOffset, top);
+  n.top = top;
+  n.visibleRows = visible;
+}
+
+void UiListActivity::drawDeckList(UiScreen& screen, fui::ListProps& props, const int selectionOffset) {
+  deck::ListSpec spec;
+  deckListSpec(spec);
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const fui::Rect body = screen.body();
+  const Rect area{body.x + metrics.contentSidePadding, body.y, body.width - 2 * metrics.contentSidePadding,
+                  body.height};
+  auto& n = activeNav();
+  const int count = listCount();
+  const int selected = n.selected - selectionOffset;
+  int top = n.top;
+  const int windowFirst = props.itemsWindowFirst;
+  const int windowCount = props.itemsWindowCount ? props.itemsWindowCount : props.count - windowFirst;
+  bool missed = false;
+  const int visible = deck::drawList(renderer, area, spec, count, selected, top, [&](int index, deck::Row& row) {
+    fui::ListItem item;
+    if (props.rowProvider) {
+      props.rowProvider(props.rowProviderCtx, static_cast<uint16_t>(index), item);
+    } else {
+      const int rel = index - windowFirst;
+      if (!props.items || rel < 0 || rel >= windowCount) {
+        missed = true;
+        return false;
+      }
+      item = props.items[rel];
+    }
+    row.label = item.label ? item.label : "";
+    if (item.subtitle) row.kicker = item.subtitle;
+    if (item.value) row.right = item.value;
+    row.hasToggle = item.toggle;
+    row.toggleOn = item.toggleChecked;
+    row.isHeader = item.isHeader;
+    if (item.sectionHeading) row.heading = item.sectionHeading;
+    return true;
+  });
+  const bool moved = top != n.top;
+  n.top = top;
+  n.visibleRows = visible;
+  n.followPending = false;
+  n.onListRendered(static_cast<uint16_t>(top), visible, true);
+  // A windowed screen materializes rows around nav.top: build again for the new window.
+  if (moved && missed) n.rebuildNeeded = true;
+  props.count = 0;
+  props.items = nullptr;
+  props.rowProvider = nullptr;
+  props.reveal = nullptr;
+}
+
+void UiListActivity::finishDeckList(UiScreen& screen, fui::ListProps& props) {
+  if (!deckListPending) return;
+  deckListPending = false;
+  drawDeckList(screen, props, deckSelectionOffset);
+}
+
 void UiListActivity::syncListViewport(UiScreen& screen, fui::ListProps& props, const int selectionOffset) {
+  if (deck::listsActive()) {
+    if (props.items || props.rowProvider) {
+      drawDeckList(screen, props, selectionOffset);
+      return;
+    }
+    // Rows come later (finishDeckList): settle the viewport now so the screen
+    // materializes the right window. A dry run with no rows measures it.
+    deckListPending = true;
+    deckSelectionOffset = selectionOffset;
+    drawDeckListViewport(screen, selectionOffset);
+    return;
+  }
   props.toggleCheckbox = true;
   props.toggleWidth = 28;
   props.toggleHeight = 28;

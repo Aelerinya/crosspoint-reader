@@ -6,6 +6,7 @@
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
+#include "images/DeckFox.h"
 
 namespace fui = freeink::ui;
 
@@ -92,4 +93,9 @@ void NetworkModeSelectionActivity::onCancel() {
   result.isCancelled = true;
   setResult(std::move(result));
   finish();
+}
+
+void NetworkModeSelectionActivity::deckListSpec(deck::ListSpec& spec) {
+  spec.style = deck::ListStyle::Cards;
+  spec.fox = &kFoxReadSmall;
 }

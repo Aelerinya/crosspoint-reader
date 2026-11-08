@@ -23,7 +23,8 @@ constexpr ThemeMetrics deck = [] {
   m.headerUnderlineSize = 2;
   m.listRowHeight = 40;
   m.listWithSubtitleRowHeight = 62;
-  m.listRowGap = 0;
+  m.listRowGap = 4;
+  m.listRowRadius = 14;  // drawn as 45° chamfers (GfxRenderer::setChamferCorners)
   m.listInset = 10;
   m.listSidePadding = 14;
   m.listSelectionStyle = 0;  // invert fill
@@ -46,6 +47,11 @@ constexpr ThemeMetrics deck = [] {
   m.popupProgressDrawOutline = true;
   m.textFieldNormalThickness = 2;
   m.textFieldCursorThickness = 3;
+  m.popupCornerRadius = 14;
+  m.statusBarVerticalMargin = 24;  // text lane
+  m.progressBarMarginTop = 10;     // room for the 12 px diamond
+  m.controlRadius = 10;
+  m.sheetRadius = 14;
   return m;
 }();
 }  // namespace ExtraMetrics
@@ -60,6 +66,15 @@ class DeckTheme : public ExtraThemeBase {
   void drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                        const char* btn4) const override;
   int getMenuRowHeight(const GfxRenderer& renderer) const override;
+  // Toast: black parallelogram, bottom centre above the key bar.
+  Rect drawPopup(const GfxRenderer& renderer, const char* message) const override;
+  void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, int progress) const override;
+  // OPENING + title, fox.run, segmented bar.
+  Rect drawBookOpening(const GfxRenderer& renderer, const char* title) const override;
+  // Progress line with a diamond marker over "n/N · title · %".
+  void drawStatusBar(GfxRenderer& renderer, float bookProgress, int currentPage, int pageCount, std::string title,
+                     int paddingBottom = 0, int textYOffset = 0, bool fillMargin = true, bool isPageBookmarked = false,
+                     bool pageCountEstimated = false) const override;
 
  protected:
   void drawHomeTile(GfxRenderer& renderer, Rect rect, const RecentBook* book) const override;
@@ -69,7 +84,8 @@ class DeckTheme : public ExtraThemeBase {
 namespace deck {
 // Display face (Saira Extra Condensed ExtraBold). Registered whatever the
 // theme, so the Kitsune sleep screen works with any theme.
-int displayFont(int size);  // 13, 22 or 31 (31 has digits, A-Z and punctuation only)
+// 13, 22 (Latin), 31 (capitals incl. Latin-1), 46 (ASCII capitals), 76 (digits and % only).
+int displayFont(int size);
 // Line step for stacked display lines: 0.86 em, as in the design.
 int displayLineStep(int size);
 // Distance from a drawText y to the top of the capitals in display face `size`.
@@ -91,6 +107,6 @@ void drawTracked(const GfxRenderer& r, int fontId, int x, int y, const char* tex
 void segments(const GfxRenderer& r, int x, int y, int w, int h, int count, int filled, bool black = true);
 // Wraps upper-cased `text` into at most `maxLines` lines of `width`; the last
 // line is truncated with an ellipsis if needed (`truncated` reports it).
-std::vector<std::string> wrapDisplay(const GfxRenderer& r, int fontId, const std::string& text, int width,
-                                     int maxLines, bool* truncated = nullptr);
+std::vector<std::string> wrapDisplay(const GfxRenderer& r, int fontId, const std::string& text, int width, int maxLines,
+                                     bool* truncated = nullptr);
 }  // namespace deck

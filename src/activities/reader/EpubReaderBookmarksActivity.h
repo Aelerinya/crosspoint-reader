@@ -34,6 +34,12 @@ class EpubReaderBookmarksActivity final : public UiListActivity {
 
  private:
   int listCount() const override { return static_cast<int>(bookmarks.size()); }
+  void deckListSpec(deck::ListSpec& spec) override {
+    spec.style = deck::ListStyle::Cards;
+    spec.subtitles = true;
+    spec.upperLabels = true;
+    spec.kicker = "// BOOKMARKS \xc2\xb7 " + std::to_string(bookmarks.size());
+  }
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int index) override;
   void onRowLongPress(int index) override;

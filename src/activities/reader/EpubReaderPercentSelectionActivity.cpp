@@ -9,6 +9,8 @@
 
 #include "components/UITheme.h"
 #include "components/UiSliderDialog.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -175,7 +177,50 @@ void EpubReaderPercentSelectionActivity::buildPercentScreen(UiScreen& screen) {
   buildSliderDialogScreen(screen, uiTarget, mappedInput, spec);
 }
 
+void EpubReaderPercentSelectionActivity::renderDeck() {
+  // Deck: huge number, 20 slanted segments, the chapter it lands in.
+  const auto& m = UITheme::getInstance().getMetrics();
+  const int W = renderer.getScreenWidth();
+  const int x = m.contentSidePadding;
+  const int w = W - 2 * x;
+  renderer.clearScreen();
+  GUI.drawHeader(renderer, Rect{0, m.topPadding, W, m.headerHeight}, "GO TO");
+  int y = m.topPadding + m.headerHeight + 30;
+  char num[8];
+  snprintf(num, sizeof(num), "%d", percent);
+  const int big = deck::displayFont(76);
+  const int bigCap = 76 * 150 * 70 / 7200;
+  renderer.drawText(big, x, y - deck::displayCapOffset(renderer, 76), num);
+  const int nw = renderer.getTextWidth(big, num);
+  const int pctFont = deck::displayFont(31);
+  const int pctCap = 31 * 150 * 70 / 7200;
+  renderer.drawText(pctFont, x + nw + 8, y + bigCap - pctCap - deck::displayCapOffset(renderer, 31), "%");
+  y += bigCap + 24;
+  deck::segments(renderer, x, y, w, 22, 20, (percent + 2) / 5);
+  y += 22 + 24;
+  if (landsIn) {
+    const std::string chapter = landsIn(percent);
+    if (!chapter.empty()) {
+      const int lh = renderer.getLineHeight(SMALL_FONT_ID);
+      const int cap = 13 * 150 * 70 / 7200;
+      const int h = 12 + lh + 6 + cap + 14;
+      deck::drawChamfer(renderer, x, y, w, h, 14, 2);
+      deck::drawTracked(renderer, SMALL_FONT_ID, x + 14, y + 12, "LANDS IN", 3, true, true);
+      const int f = deck::displayFont(13);
+      const std::string t = renderer.truncatedText(f, deck::upper(chapter).c_str(), w - 28);
+      renderer.drawText(f, x + 14, y + 12 + lh + 6 - deck::displayCapOffset(renderer, 13), t.c_str());
+    }
+  }
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), "GO", "-1", "+1");
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  renderer.displayBuffer();
+}
+
 void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
+  if (deck::listsActive()) {
+    renderDeck();
+    return;
+  }
   // No clearScreen: the dialog is a popup — it dims the frame it opened over
   // and draws the card on top. Everything renders through the app so the
   // slider, -/+ zones, and Cancel/OK register touch hit rects.
