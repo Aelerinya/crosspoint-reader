@@ -48,8 +48,11 @@ void drawKitsuneSleepScreen(const GfxRenderer& r) {
         if (Storage.openFileForRead("SLP", path, file)) {
           Bitmap bitmap(file);
           if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+            // drawBitmap only inks dark pixels: clear the black card first.
+            r.fillRect(cx, cy, cw, ch, false);
             const int extra = bitmap.getHeight() - ch;
             cover = BaseTheme::drawCoverThumbFill(r, bitmap, Rect{cx, cy, cw, ch}, 0, {}, extra / 2 - extra * 22 / 100);
+            if (!cover) fillChamfer(r, cx, cy, cw, ch, 24, true);
           }
           file.close();
         }
