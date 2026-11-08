@@ -748,7 +748,8 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const Rect content = UITheme::getContentArea(renderer);  // bezel-safe content bounds
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  const bool deckTop = deck::listsActive() && !cursorMode;
+  // The Deck field draws the cursor at the end: a cursor moved mid-text gets the stock field.
+  const bool deckTop = deck::listsActive() && !cursorMode && cursorPos == text.length();
   if (deckTop) renderDeckTop();
   const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
   const int inputStartY = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing +
@@ -1045,9 +1046,9 @@ void KeyboardEntryActivity::renderDeckTop() {
   // Big field: the text (masked unless shown) with a bar cursor, the count on the right.
   const std::string shown = displayTextForCurrentState();
   char count[16];
-  snprintf(count, sizeof(count), "%u CHARS",
-           static_cast<unsigned>(std::count_if(
-               text.begin(), text.end(), [](const char c) { return (static_cast<unsigned char>(c) & 0xC0) != 0x80; })));
+  const auto chars = static_cast<unsigned>(std::count_if(
+      text.begin(), text.end(), [](const char c) { return (static_cast<unsigned char>(c) & 0xC0) != 0x80; }));
+  snprintf(count, sizeof(count), chars == 1 ? "%u CHAR" : "%u CHARS", chars);
   const int cw = deck::trackedWidth(r, small, count, 2, true);
   const int field = UI_12_FONT_ID;
   const int fh = r.getLineHeight(field);
@@ -1068,7 +1069,7 @@ void KeyboardEntryActivity::renderDeckTop() {
   const fui::Rect kb = keyboardRect();
   const int hintY = kb.y - r.getLineHeight(small) - 14;
   if (hintY > ruleY + 20) {
-    deck::drawTracked(r, small, 16, hintY, "HOLD OK \xc2\xb7 SHIFT / 2ND CHAR", 2, true, true);
+    deck::drawTracked(r, small, 16, hintY, "HOLD TYPE \xc2\xb7 SHIFT / 2ND CHAR", 2, true, true);
     const char* clear = "HOLD DEL \xc2\xb7 CLEAR";
     const int clw = deck::trackedWidth(r, small, clear, 2, true);
     deck::drawTracked(r, small, W - 16 - clw, hintY, clear, 2, true, true);

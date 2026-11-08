@@ -92,7 +92,8 @@ void LanguageSelectActivity::deckRowExtra(const int index, deck::Row& row) {
   if (index < 0 || index >= totalItems) return;
   const uint8_t lang = SORTED_LANGUAGE_INDICES[index];
   row.marked = lang == static_cast<uint8_t>(I18N.getLanguage());
-  row.right = deck::englishLanguageName(lang);
+  const char* english = deck::englishLanguageName(lang);
+  if (row.label != english) row.right = english;
 }
 
 void LanguageSelectActivity::buildScreen(UiScreen& screen) {

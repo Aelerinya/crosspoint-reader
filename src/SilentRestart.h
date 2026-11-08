@@ -14,7 +14,8 @@ void silentRestartToSettings();  // settings screen
 // WiFi + TLS working set has the contiguous RAM it needs on tight boards. A
 // no-op on touch boards (a soft reset would cycle their externally-powered
 // rails); the caller then proceeds without a reboot.
-void silentRestartToJoinNetwork();
+// overlayDrawn: the caller already drew its own loading frame (skips the popup).
+void silentRestartToJoinNetwork(bool overlayDrawn = false);
 
 // Reboots immediately after an activity releases exclusive raw storage. The
 // RTC target ensures setup() lands on Home instead of resuming a reader.

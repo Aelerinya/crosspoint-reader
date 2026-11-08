@@ -81,7 +81,7 @@ const char* layoutName(const freeink::ui::KeyboardLayoutId id) {
 }
 
 constexpr int kDeckRowsTop = 116;
-constexpr int kDeckRowH = 47;
+constexpr int kDeckRowH = deck::kPickRowHeight;
 }  // namespace
 
 void KeyboardLayoutsActivity::drawChrome() {

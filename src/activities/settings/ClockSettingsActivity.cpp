@@ -15,6 +15,7 @@
 #include "MappedInputManager.h"
 #include "TimezonePickerActivity.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
 #include "components/themes/extra/DeckScreens.h"
 #include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
@@ -122,9 +123,10 @@ void ClockSettingsActivity::drawChrome() {
     const int dw = deck::trackedWidth(renderer, SMALL_FONT_ID, d.c_str(), 3, true);
     deck::drawTracked(renderer, SMALL_FONT_ID, (W - dw) / 2, 68 + deck::bigTitleCap(76) + 22, d.c_str(), 3, true, true);
   }
-  // Last sync under the rows.
-  const char* last = SETTINGS.clockHasBeenSynced ? "LAST SYNC \xc2\xb7 DONE" : "LAST SYNC \xc2\xb7 NEVER";
-  deck::drawTracked(renderer, SMALL_FONT_ID, 28, kDeckRowsTop + ITEM_COUNT * 41 + 12, last, 2, true, true);
+  // Whether the clock has been set, under the rows.
+  const char* last = SETTINGS.clockHasBeenSynced ? "CLOCK SET" : "CLOCK NOT SET";
+  deck::drawTracked(renderer, SMALL_FONT_ID, 28, kDeckRowsTop + ITEM_COUNT * deck::kRowsRowHeight + 12, last, 2, true,
+                    true);
 }
 
 void ClockSettingsActivity::drawFooter() {
@@ -133,7 +135,7 @@ void ClockSettingsActivity::drawFooter() {
     return;
   }
   const int sel = nav.selected;
-  const char* ok = sel == ITEM_TIMEZONE || sel == ITEM_SYNC ? "OPEN" : "CHANGE";
+  const char* ok = sel == ITEM_TIMEZONE || sel == ITEM_SYNC ? tr(STR_OPEN) : "CHANGE";
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), ok, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
@@ -151,7 +153,8 @@ void ClockSettingsActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   if (deck::listsActive()) {
     screen.setContentMarginFromScreen(fui::Insets{
-        kDeckRowsTop, 0, static_cast<int16_t>(renderer.getScreenHeight() - kDeckRowsTop - ITEM_COUNT * 41), 0});
+        kDeckRowsTop, 0,
+        static_cast<int16_t>(renderer.getScreenHeight() - kDeckRowsTop - ITEM_COUNT * deck::kRowsRowHeight), 0});
   } else {
     screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
                                                   static_cast<int16_t>(metrics.buttonHintsHeight), 0});
@@ -166,7 +169,7 @@ void ClockSettingsActivity::buildScreen(UiScreen& screen) {
   rowItems_[ITEM_FORMAT].value = SETTINGS.clockFormat == 1 ? tr(STR_CLOCK_FORMAT_12H) : tr(STR_CLOCK_FORMAT_24H);
   GUI.setCheckboxRow(rowItems_[ITEM_SHOW_ON_HOME], SETTINGS.clockShowInHeader);
   // The sync row's value is the current time itself: it confirms the sync,
-  // previews format/zone changes, and reads "Not Set" until the first sync.
+  // previews format/zone changes, and reads "Not Set" until the first sync (not shown on Deck).
   rowItems_[ITEM_SYNC].value =
       SETTINGS.clockHasBeenSynced && halClock.formatTime(syncTime_, sizeof(syncTime_), SETTINGS.clockFormat == 1)
           ? syncTime_

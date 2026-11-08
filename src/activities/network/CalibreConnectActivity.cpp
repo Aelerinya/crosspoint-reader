@@ -179,16 +179,13 @@ void CalibreConnectActivity::loop() {
 }
 
 namespace {
-// "1) Install ..." / "\"Keep ...\"" -> the bare step text.
+// "1) Install ..." / "\"Keep ...\"" -> the bare step text (quotes inside a step stay).
 std::string calibreStep(const char* raw) {
   std::string t = raw ? raw : "";
   const size_t paren = t.find(") ");
   if (paren != std::string::npos && paren < 3) t.erase(0, paren + 2);
-  std::string out;
-  for (const char c : t) {
-    if (c != '"') out += c;
-  }
-  return out;
+  if (t.size() >= 2 && t.front() == '"' && t.back() == '"') t = t.substr(1, t.size() - 2);
+  return t;
 }
 }  // namespace
 

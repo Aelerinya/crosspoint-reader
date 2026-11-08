@@ -85,9 +85,9 @@ def main():
         for suffix, data in layers:
             body = ",".join(f"0x{b:02X}" for b in data)
             lines = [body[i:i + 120] for i in range(0, len(body), 120)]
-            parts.append(f"static const uint8_t {name}_{suffix}[] = {{\n" + "\n".join(lines) + "};\n")
+            parts.append(f"inline constexpr uint8_t {name}_{suffix}[] = {{\n" + "\n".join(lines) + "};\n")
         halo_ref = f"{name}_halo, sizeof({name}_halo)" if halo else "nullptr, 0"
-        parts.append(f"static constexpr Sprite {name} = {{{ink.size[0]}, {ink.size[1]}, {name}_runs, "
+        parts.append(f"inline constexpr Sprite {name} = {{{ink.size[0]}, {ink.size[1]}, {name}_runs, "
                      f"sizeof({name}_runs), {halo_ref}}};\n")
     open(out_path, "w").write("".join(parts))
     print(f"{out_path}: {total} bytes of runs")

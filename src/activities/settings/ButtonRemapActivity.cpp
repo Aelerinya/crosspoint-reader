@@ -128,10 +128,10 @@ void ButtonRemapActivity::renderDeck() {
   r.clearScreen();
   deck::drawSmallHeader(r, "REMAP");
   deck::drawBigTitle(r, 53, "REMAP", "割当");
-  deck::drawTracked(r, small, 16, 100, "PRESS THE BUTTON FOR", 2, true, true);
+  deck::drawTracked(r, small, 16, 100, "PRESS ANY FRONT BUTTON FOR", 2, true, true);
 
-  // Device: dark slab, white screen, the four front buttons; the one for the
-  // current role's default position framed.
+  // Device: dark slab, white screen, the four front buttons; the current role's
+  // default position is framed (any unassigned button is accepted).
   {
     const int xs[] = {30, 214, 230, 230, 214, 46, 30};
     const int ys[] = {121, 121, 137, 404, 420, 420, 404};
@@ -166,9 +166,9 @@ void ButtonRemapActivity::renderDeck() {
   // Roles and their buttons.
   r.fillRect(16, 447, W - 32, 2, true);
   for (uint8_t i = 0; i < kRoleCount; ++i) {
-    const int y = 449 + i * 41, cy = y + 20;
+    const int y = 449 + i * deck::kRowsRowHeight, cy = y + deck::kRowsRowHeight / 2;
     const bool on = i == currentStep;
-    if (on) r.fillRect(16, y, W - 32, 41, true);
+    if (on) r.fillRect(16, y, W - 32, deck::kRowsRowHeight, true);
     int lx = 28;
     if (on) {
       const int xs[] = {30, 41, 30};
@@ -184,7 +184,7 @@ void ButtonRemapActivity::renderDeck() {
     const int vw = deck::trackedWidth(r, small, v.c_str(), 2, true);
     deck::drawTracked(r, small, W - 28 - vw, cy - r.getLineHeight(small) / 2, v.c_str(), 2, !on, true);
     if (!on) {
-      for (int x = 16; x < W - 16; x += 6) r.fillRect(x, y + 40, 3, 1, true);
+      for (int x = 16; x < W - 16; x += 6) r.fillRect(x, y + deck::kRowsRowHeight - 1, 3, 1, true);
     }
   }
 

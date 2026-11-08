@@ -94,6 +94,7 @@ FileBrowserActivity::FileBrowserActivity(GfxRenderer& renderer, MappedInputManag
 
 void FileBrowserActivity::loadFiles() {
   files.clear();
+  firmwareSizesKb.clear();
   prewarmedStart = -1;  // new folder contents: re-prewarm the visible window
 
   auto root = Storage.open(basepath.c_str());
@@ -233,6 +234,7 @@ void FileBrowserActivity::onEnter() {
 void FileBrowserActivity::onExit() {
   Activity::onExit();
   files.clear();
+  firmwareSizesKb.clear();
   fileNameBuffer.reset();
 }
 
@@ -710,19 +712,25 @@ void FileBrowserActivity::deckRowExtra(const int index, deck::Row& row) {
   const std::string& name = files[static_cast<size_t>(index)];
   row.folder = name.back() == '/';
   if (mode != Mode::PickFirmware || row.folder) return;
-  // Firmware rows: "1.6 MB" under the name (one small open per drawn row; the picker lists few files).
-  std::string path = basepath;
-  if (path.empty() || path.back() != '/') path += '/';
-  path += name;
-  HalFile file;
-  if (Storage.openFileForRead("FWPICK", path, file)) {
-    const uint64_t bytes = file.fileSize64();
-    file.close();
-    char buf[24];
-    snprintf(buf, sizeof(buf), "%u.%u MB", static_cast<unsigned>(bytes / (1024 * 1024)),
-             static_cast<unsigned>((bytes % (1024 * 1024)) * 10 / (1024 * 1024)));
-    row.kicker = buf;
+  // Firmware rows: "1.6 MB" under the name. The size is read on the row's first draw only.
+  if (firmwareSizesKb.size() != files.size()) firmwareSizesKb.assign(files.size(), UINT32_MAX);
+  uint32_t& kb = firmwareSizesKb[static_cast<size_t>(index)];
+  if (kb == UINT32_MAX) {
+    kb = 0;
+    std::string path = basepath;
+    if (path.empty() || path.back() != '/') path += '/';
+    path += name;
+    HalFile file;
+    if (Storage.openFileForRead("FWPICK", path, file)) {
+      kb = static_cast<uint32_t>(file.fileSize64() / 1024);
+      file.close();
+    }
   }
+  if (kb == 0) return;
+  char buf[24];
+  snprintf(buf, sizeof(buf), "%u.%u MB", static_cast<unsigned>(kb / 1024),
+           static_cast<unsigned>(kb % 1024 * 10 / 1024));
+  row.kicker = buf;
 }
 
 void FileBrowserActivity::drawChrome() {

@@ -44,8 +44,6 @@
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
-#include "components/themes/extra/DeckList.h"
-#include "components/themes/extra/DeckScreens.h"
 #include "fontIds.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
@@ -185,7 +183,7 @@ void silentRestartToReader() { silentRestartTo(SILENT_REBOOT_TARGET_READER, "rea
 
 void silentRestartToSettings() { silentRestartTo(SILENT_REBOOT_TARGET_SETTINGS, "settings"); }
 
-void silentRestartToJoinNetwork() {
+void silentRestartToJoinNetwork(const bool overlayDrawn) {
   if (deepSleepInProgress) return;
 #if FREEINK_CAP_TOUCH
   // A software reset would cycle touch/frontlight rails; those boards proceed
@@ -195,11 +193,7 @@ void silentRestartToJoinNetwork() {
 #endif
   armSilentReboot(SILENT_REBOOT_TARGET_JOIN_NETWORK);
   LOG_DBG("MAIN", "Silent restart (target=join-network)");
-  if (deck::listsActive()) {
-    deck::drawJoinLoading(renderer);  // over the Transfer menu still on screen
-  } else {
-    GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-  }
+  if (!overlayDrawn) GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   delay(50);
   ESP.restart();
 }

@@ -66,6 +66,8 @@ class FileBrowserActivity final : public UiListActivity {
   // footer labels depend on path depth and picker mode.
   void drawChrome() override;
   void deckListSpec(deck::ListSpec& spec) override;
+  // PickFirmware: .bin sizes in KB, read once per row after each load (UINT32_MAX = not read).
+  std::vector<uint32_t> firmwareSizesKb;
   void deckRowExtra(int index, deck::Row& row) override;
   void drawFooter() override;
   void activateSelected();

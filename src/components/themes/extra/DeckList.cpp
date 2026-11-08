@@ -92,11 +92,11 @@ void stripDeckSuffix(std::string& label) {
 int rowHeight(const GfxRenderer& r, const ListStyle style, const bool cardKicker) {
   switch (style) {
     case ListStyle::Rows:
-      return 41;
+      return kRowsRowHeight;
     case ListStyle::Categories:
       return 56;
     case ListStyle::Pick:
-      return 47;
+      return kPickRowHeight;
     case ListStyle::Menu:
       return 30;
     case ListStyle::Display:
@@ -335,16 +335,15 @@ int drawList(const GfxRenderer& r, const Rect area, const ListSpec& spec, const 
           const bool arrows = on && row.kind == RowKind::Enum;
           const std::string v = fitTracked(r, vf, upper(row.right), w / 2, 2);
           const int vw = trackedWidth(r, vf, v.c_str(), 2, true);
-          const int vx = right - vw - (arrows ? 14 : 0);
+          const bool action = row.kind == RowKind::Action;
+          const int vx = right - vw - (arrows || action ? 14 : 0);
           drawTracked(r, vf, vx, cy - r.getLineHeight(vf) / 2, v.c_str(), 2, ink, true);
           if (arrows) {
             arrowLeft(r, vx - 14, cy, ink);
             arrowRight(r, right - 5, cy, ink);
           }
-          if (row.kind == RowKind::Action) {
-            arrowRight(r, right - 5, cy, ink);
-          }
-          rightW = vw + (arrows ? 28 : 0);
+          if (action) arrowRight(r, right - 5, cy, ink);
+          rightW = vw + (arrows ? 28 : action ? 14 : 0);
         }
         const int font = UI_10_FONT_ID;
         const std::string l = fitTracked(r, font, row.label, w - 24 - rightW - 14, 2);

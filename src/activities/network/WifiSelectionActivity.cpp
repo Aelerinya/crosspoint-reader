@@ -355,7 +355,7 @@ void WifiSelectionActivity::promptPasswordEntry() {
                                                           "",  // No initial text
                                                           64,  // Max password length
                                                           InputType::Text);
-  keyboard->setDeckTag("PASSWORD", selectedSSID + " \xc2\xb7 WPA2");
+  keyboard->setDeckTag("PASSWORD", selectedSSID);
   startActivityForResult(std::move(keyboard), [this](const ActivityResult& result) {
     if (result.isCancelled) {
       state = WifiSelectionState::NETWORK_LIST;
@@ -1232,7 +1232,7 @@ void WifiSelectionActivity::renderDeckList() {
       const int level = net.rssi >= -55 ? 4 : net.rssi >= -65 ? 3 : net.rssi >= -75 ? 2 : 1;
       deck::drawSignalBars(r, right - 28, cy - 7, level, ink);
       right -= 40;
-      const char* sec = net.isEncrypted ? "WPA2" : "OPEN";
+      const char* sec = net.isEncrypted ? "SECURE" : "OPEN";  // only encrypted/open is known
       deck::drawOutlineTag(r, right, cy, sec, ink);
       right -= deck::trackedWidth(r, small, sec, 1, true) + 24;
       const int font = deck::displayFont(13);
@@ -1260,8 +1260,8 @@ void WifiSelectionActivity::renderDeckList() {
   }
   deck::drawTracked(r, small, 16, macY + 6, deckMac().c_str(), 2, true, true);
   const bool hasSavedPassword = !networks.empty() && networks[selectedNetworkIndex].hasSavedPassword;
-  const auto labels =
-      mappedInput.mapLabels(tr(STR_BACK), tr(STR_CONNECT), hasSavedPassword ? tr(STR_FORGET_BUTTON) : "", "RESCAN");
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_CONNECT),
+                                            hasSavedPassword ? tr(STR_FORGET_BUTTON) : "", tr(STR_RETRY));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 

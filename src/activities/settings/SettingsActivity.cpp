@@ -234,11 +234,15 @@ constexpr const char* kDeckTabs[SETTINGS_SECTION_COUNT] = {"SYS", "DISP", "READ"
 }  // namespace
 
 void SettingsActivity::switchSection(const int delta) {
-  const int n = static_cast<int>(SETTINGS_SECTION_COUNT);
-  section = static_cast<SettingsSection>((static_cast<int>(section) + delta + n) % n);
-  rebuildSettings();
-  nav.selected = 0;
-  nav.top = 0;
+  {
+    // The render task reads settings/rowItems_ while drawing.
+    RenderLock lock(*this);
+    const int n = static_cast<int>(SETTINGS_SECTION_COUNT);
+    section = static_cast<SettingsSection>((static_cast<int>(section) + delta + n) % n);
+    rebuildSettings();
+    nav.selected = 0;
+    nav.top = 0;
+  }
   requestUpdate();
 }
 
@@ -607,7 +611,7 @@ void SettingsActivity::drawFooter() {
   if (deck::listsActive()) {
     const bool action =
         selected >= 0 && selected < static_cast<int>(settings.size()) && settings[selected].type == SettingType::ACTION;
-    const auto labels = mappedInput.mapLabels(tr(STR_BACK), action ? "OPEN" : "CHANGE", "< TAB", "TAB >");
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), action ? tr(STR_OPEN) : "CHANGE", "< TAB", "TAB >");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     return;
   }

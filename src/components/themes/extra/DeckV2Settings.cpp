@@ -1,5 +1,6 @@
 // Deck v2 pieces for the settings and Wi-Fi screens (design/uncovered/designed).
 #include <GfxRenderer.h>
+#include <I18nKeys.h>
 
 #include <algorithm>
 #include <string>
@@ -41,6 +42,8 @@ const char* englishLanguageName(const uint8_t lang) {
       "Norwegian", "Dutch",  "Orangutan",   "Polish",     "Portuguese (BR)", "Portuguese (PT)", "Romanian",
       "Russian",   "Slovak", "Slovenian",   "Swedish",    "Turkish",         "Ukrainian",       "Vietnamese",
   };
+  static_assert(sizeof(kNames) / sizeof(kNames[0]) == static_cast<size_t>(Language::_COUNT),
+                "one English name per Language");
   return lang < sizeof(kNames) / sizeof(kNames[0]) ? kNames[lang] : "";
 }
 

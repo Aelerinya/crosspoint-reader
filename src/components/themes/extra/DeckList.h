@@ -66,6 +66,10 @@ struct ListSpec {
   int rowHeight = 0;          // overrides the style's row height (Categories fill the area by default)
 };
 
+// v2 row heights (Rows, Pick), for screens that place rows themselves.
+constexpr int kRowsRowHeight = 41;
+constexpr int kPickRowHeight = 47;
+
 // v2 settings category strip: black band with slanted tabs, the active one white.
 // Returns its height (38).
 int drawCategoryStrip(const GfxRenderer& renderer, int y, const char* const* labels, int count, int active);

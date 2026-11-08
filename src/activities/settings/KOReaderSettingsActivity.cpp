@@ -223,6 +223,9 @@ void KOReaderSettingsActivity::drawChrome() {
   };
   static constexpr Group kGroups[] = {
       {"// ACCOUNT", IDX_USERNAME, 2}, {"// SERVER", IDX_SERVER_URL, 4}, {"// BEHAVIOUR", IDX_MATCH_METHOD, 4}};
+  static_assert(IDX_USERNAME + 2 == IDX_SERVER_URL && IDX_SERVER_URL + 4 == IDX_MATCH_METHOD &&
+                    IDX_MATCH_METHOD + 4 == IDX_SIGN_UP,
+                "Deck groups must cover the rows before the buttons");
   int y = 112;
   deck::ListSpec spec;
   spec.style = deck::ListStyle::Rows;
@@ -231,7 +234,8 @@ void KOReaderSettingsActivity::drawChrome() {
     r.fillRect(16, y + r.getLineHeight(small) + 3, W - 32, 2, true);
     y += r.getLineHeight(small) + 6;
     int top = 0;
-    deck::drawList(r, Rect{16, y, W - 32, g.count * 41}, spec, g.count, sel - g.first, top,
+    const int local = sel >= g.first && sel < g.first + g.count ? sel - g.first : -1;
+    deck::drawList(r, Rect{16, y, W - 32, g.count * deck::kRowsRowHeight}, spec, g.count, local, top,
                    [&](const int i, deck::Row& row) {
                      const auto& item = rowItems_[g.first + i];
                      row.label = item.label ? item.label : "";
@@ -241,7 +245,7 @@ void KOReaderSettingsActivity::drawChrome() {
                      row.kind = deck::RowKind::Enum;
                      return true;
                    });
-    y += g.count * 41 + 8;
+    y += g.count * deck::kRowsRowHeight + 8;
   }
   // SIGN UP / AUTHENTICATE: outlined buttons, dashed until credentials exist.
   const bool creds = KOREADER_STORE.hasCredentials();

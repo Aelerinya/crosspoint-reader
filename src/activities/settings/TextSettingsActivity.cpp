@@ -192,12 +192,14 @@ bool TextSettingsActivity::handleCustomInput() {
   if (optionPopup_.handleInput(mappedInput, [this] { requestUpdate(); })) return true;
   if (deck::listsActive() && !optionPopup_.isActive()) {
     // Deck: front ◀ ▶ switch tabs, the side buttons move through the rows.
-    if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
-      switchTab(-1);
-      return true;
-    }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
-      switchTab(1);
+    const int dir = mappedInput.wasPressed(MappedInputManager::Button::Left)    ? -1
+                    : mappedInput.wasPressed(MappedInputManager::Button::Right) ? 1
+                                                                                : 0;
+    if (dir != 0) {
+      {
+        RenderLock lock(*this);  // rowItems_ is rebuilt for the new tab
+        switchTab(dir);
+      }
       return true;
     }
     if (mappedInput.isPressed(MappedInputManager::Button::Left) ||
