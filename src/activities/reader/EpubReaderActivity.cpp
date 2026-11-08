@@ -364,6 +364,9 @@ void EpubReaderActivity::openReaderMenu() {
     requestUpdate();
     return;
   }
+  // The Deck menu panel draws over the framebuffer: after a child screen the
+  // page must be drawn again first.
+  if (deck::listsActive() && pageRenderVisit != activityManager.visit()) requestUpdateAndWait();
   // Child screens (chapter list, text settings) release the section to free its
   // pagination buffers; chapterPosition() covers that with the cached position.
   const ChapterPosition position = chapterPosition();
@@ -521,7 +524,7 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
 
   int marginTop, marginRight, marginBottom, marginLeft;
   renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
-  marginTop += SETTINGS.screenMargin;
+  marginTop += readerTopMargin();
   marginLeft += SETTINGS.screenMargin;
 
   std::string chapterTitle;
@@ -568,9 +571,8 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
       }
       int top, right, bottom, left;
       renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
-      auto lookup = makeUniqueNoThrow<DictionaryWordSelectActivity>(renderer, mappedInput, std::move(page),
-                                                                    left + SETTINGS.screenMargin,
-                                                                    top + SETTINGS.screenMargin, clipping.text);
+      auto lookup = makeUniqueNoThrow<DictionaryWordSelectActivity>(
+          renderer, mappedInput, std::move(page), left + SETTINGS.screenMargin, top + readerTopMargin(), clipping.text);
       if (!lookup) {
         LOG_ERR("CLIP", "OOM: dictionary lookup activity");
         requestUpdate();
@@ -617,7 +619,7 @@ void EpubReaderActivity::openFootnoteSelect(const bool reopenMenuOnCancel) {
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
                                    &orientedMarginLeft);
-  orientedMarginTop += SETTINGS.screenMargin;
+  orientedMarginTop += readerTopMargin();
   orientedMarginLeft += SETTINGS.screenMargin;
   auto selector = makeUniqueNoThrow<EpubReaderFootnoteSelectActivity>(renderer, mappedInput, std::move(page),
                                                                       orientedMarginLeft, orientedMarginTop);
@@ -1502,6 +1504,10 @@ bool EpubReaderActivity::pageTurn(bool isForwardTurn) {
   return false;
 }
 
+// Page text starts this far below the viewable top: the user margin plus the
+// theme's top line (Deck) when it draws one.
+int EpubReaderActivity::readerTopMargin() { return SETTINGS.screenMargin + GUI.readerTopReserve(); }
+
 void EpubReaderActivity::showChapterClear() {
   const int from = chapterClearFromSpine;
   chapterClearFromSpine = -1;
@@ -1686,7 +1692,7 @@ void EpubReaderActivity::renderBook() {
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
                                    &orientedMarginLeft);
-  orientedMarginTop += SETTINGS.screenMargin;
+  orientedMarginTop += readerTopMargin();
   orientedMarginLeft += SETTINGS.screenMargin;
   orientedMarginRight += SETTINGS.screenMargin;
 
@@ -1987,6 +1993,7 @@ void EpubReaderActivity::renderBook() {
     const auto start = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
+    pageRenderVisit = activityManager.visit();
     lastRenderCompleteMs = millis();
     markPageRendered();
   }
@@ -2387,7 +2394,7 @@ int EpubReaderActivity::clippingAtPoint(const Page& page, const int x, const int
       if (width <= 0) continue;
       const uint16_t index = wordIndex++;
       const Rect rect =
-          clippingWordRect(renderer, fontId, line, i, top + SETTINGS.screenMargin, left + SETTINGS.screenMargin, width);
+          clippingWordRect(renderer, fontId, line, i, top + readerTopMargin(), left + SETTINGS.screenMargin, width);
       if (x < rect.x || x >= rect.x + rect.width || y < rect.y || y >= rect.y + rect.height) continue;
       const auto range = block->wordSourceRange(i);
       for (size_t j = 0; j < CLIPPINGS.clippingCount(); ++j) {
@@ -2526,6 +2533,12 @@ void EpubReaderActivity::renderStatusBar() const {
     title = epub ? epub->getTitle() : "";
   }
 
+  if (GUI.readerTopReserve() > 0 && epub) {
+    std::string chapter;
+    const int tocIndex = epub->getTocIndexForSpineIndex(currentSpineIndex);
+    if (tocIndex != -1) chapter = epub->getTocItem(tocIndex).title;
+    GUI.drawReaderTopLine(renderer, epub->getTitle(), chapter);
+  }
   GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, true, currentPageBookmarked,
                     section ? section->isBuilding() : false);
 }

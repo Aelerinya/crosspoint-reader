@@ -29,6 +29,11 @@ void drawKitsuneSleepScreen(const GfxRenderer& r) {
   const int bigCap = 31 * 150 * 70 / (72 * 100);
   r.drawText(big, kPad, kPad - displayCapOffset(r, 31), "STANDBY");
   const int ruleY = kPad + bigCap + 8;
+  {
+    const char* kana = "スタンバイ";
+    const int kw = r.getTextWidth(kanaFont(), kana);
+    r.drawText(kanaFont(), W - kPad - kw, ruleY - 4 - r.getLineHeight(kanaFont()), kana);
+  }
   r.fillRect(kPad, ruleY, W - 2 * kPad, 2);
 
   // Bottom block: last book card, then the status line.
@@ -89,6 +94,7 @@ void drawWakingScreen(const GfxRenderer& r, const char* message) {
   const int bigH = 46 * 150 * 70 / (72 * 100);
   const int total = bigH + 24 + kFoxWake.height + 30 + 10 + 10 + r.getLineHeight(SMALL_FONT_ID);
   int y = std::max(kPad, (H - total) / 2);
+  r.drawText(kanaFont(), kPad, y - r.getLineHeight(kanaFont()) - 8, "おはよう");
   r.drawText(big, kPad, y - displayCapOffset(r, 46), "WAKING");
   y += bigH + 24;
   drawSprite(r, kFoxWake, (W - kFoxWake.width) / 2, y);
@@ -236,7 +242,9 @@ void transitionOut(const GfxRenderer& r, const char* destination, const bool fla
   }
   int y = H * 300 / 800;
   const int cap = 46 * 150 * 70 / 7200;
-  r.drawText(displayFont(46), 40, y - displayCapOffset(r, 46), upper(destination ? destination : "").c_str(), false);
+  const std::string dest = upper(destination ? destination : "");
+  if (const char* kana = kanaFor(dest)) r.drawText(kanaFont(), 40, y - r.getLineHeight(kanaFont()) - 8, kana, false);
+  r.drawText(displayFont(46), 40, y - displayCapOffset(r, 46), dest.c_str(), false);
   y += cap + 16;
   r.fillRect(40, y, W - 80, 3, false);
   y += 13;

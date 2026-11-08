@@ -29,6 +29,10 @@ class EpubReaderActivity final : public ReaderActivity {
   int chapterClearFromSpine = -1;
   unsigned long chapterClearUntil = 0;
   void showChapterClear();
+  // ActivityManager visit at which the page was last drawn: the Deck reader
+  // menu draws over the framebuffer, so it must hold the page.
+  uint32_t pageRenderVisit = UINT32_MAX;
+  static int readerTopMargin();
   int nextPageNumber = 0;
   std::optional<uint16_t> pendingPageJump;
   std::string pendingAnchor;

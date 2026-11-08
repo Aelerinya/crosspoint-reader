@@ -98,6 +98,10 @@ int headerHeight(const GfxRenderer& r, const ListSpec& spec) {
 
 }  // namespace
 
+void drawTabBar(const GfxRenderer& r, const int x, const int y, const ListSpec& spec) { drawTabs(r, x, y, spec); }
+
+int tabBarHeight(const GfxRenderer& r) { return r.getLineHeight(SMALL_FONT_ID) + 10 + 22; }
+
 int listViewport(const GfxRenderer& r, const Rect area, const ListSpec& spec, const int count, const int selected,
                  int& top) {
   const bool cardKicker = spec.style == ListStyle::Cards && spec.subtitles;

@@ -57,6 +57,10 @@ constexpr ThemeMetrics deck = [] {
 }  // namespace ExtraMetrics
 
 class DeckTheme : public ExtraThemeBase {
+  // Set by drawReaderTopLine for the status bar drawn right after it (which
+  // then leaves clock, battery and title to the top line).
+  mutable bool topLineDrawn = false;
+
  public:
   void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle = nullptr,
                   bool backButton = true) const override;
@@ -71,6 +75,9 @@ class DeckTheme : public ExtraThemeBase {
   void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, int progress) const override;
   // OPENING + title, fox.run, segmented bar.
   Rect drawBookOpening(const GfxRenderer& renderer, const char* title) const override;
+  // "BOOK · CHAPTER" over a rule, clock, battery (top of the page).
+  int readerTopReserve() const override;
+  void drawReaderTopLine(GfxRenderer& renderer, const std::string& book, const std::string& chapter) const override;
   // Progress line with a diamond marker over "n/N · title · %".
   void drawStatusBar(GfxRenderer& renderer, float bookProgress, int currentPage, int pageCount, std::string title,
                      int paddingBottom = 0, int textYOffset = 0, bool fillMargin = true, bool isPageBookmarked = false,
@@ -86,6 +93,10 @@ namespace deck {
 // theme, so the Kitsune sleep screen works with any theme.
 // 13, 22 (Latin), 31 (capitals incl. Latin-1), 46 (ASCII capitals), 76 (digits and % only).
 int displayFont(int size);
+// Small Japanese tags (ホーム 書庫 目次 …): the font and the tag for a screen
+// name (English UI labels only; nullptr when there is none).
+int kanaFont();
+const char* kanaFor(const std::string& upperLabel);
 // Line step for stacked display lines: 0.86 em, as in the design.
 int displayLineStep(int size);
 // Distance from a drawText y to the top of the capitals in display face `size`.

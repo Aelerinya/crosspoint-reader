@@ -82,6 +82,8 @@ class UiListActivity : public Activity, protected UiAppHost {
   // with deck::drawList from the screen's ListProps; screens pick the row
   // style, kicker line and companion here.
   virtual void deckListSpec(deck::ListSpec& spec) {}
+  // Deck: draw over the screen underneath instead of clearing it (panels).
+  virtual bool deckOverlay() const { return false; }
 
   // --- helpers ---------------------------------------------------------------
   // Measure visibleRows for the screen band, apply follow-on-build, clamp the

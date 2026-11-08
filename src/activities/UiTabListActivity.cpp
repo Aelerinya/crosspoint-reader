@@ -7,6 +7,7 @@
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
 
 namespace fui = freeink::ui;
 
@@ -97,6 +98,21 @@ void UiTabListActivity::syncTabListViewport(UiScreen& screen, fui::ListProps& pr
 
 void UiTabListActivity::buildTabBar(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
+  if (deck::listsActive()) {
+    // Deck: slanted tabs, the active one filled; underlined while the tabs have focus.
+    constexpr int MAX_TABS = 8;
+    const int count = tabCount() < MAX_TABS ? tabCount() : MAX_TABS;
+    const char* labels[MAX_TABS];
+    for (int i = 0; i < count; i++) labels[i] = tabLabel(i);
+    deck::ListSpec spec;
+    spec.tabs = labels;
+    spec.tabCount = count;
+    spec.activeTab = activeTab();
+    spec.tabsFocused = ringPos() == 0;
+    const fui::Rect band = screen.takeTop(static_cast<int16_t>(deck::tabBarHeight(renderer)));
+    deck::drawTabBar(renderer, band.x + metrics.contentSidePadding, band.y + 6, spec);
+    return;
+  }
 
   // Tabs. The selected pill dims to a dither when the selection is down in
   // the list (the legacy focused/unfocused tab distinction).

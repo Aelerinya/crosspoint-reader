@@ -10,6 +10,7 @@
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckTheme.h"
 #include "util/PluginEvents.h"
 #include "util/SlideSwitch.h"
 
@@ -209,22 +210,29 @@ void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   // Content: the safe area minus the header band GUI.drawHeader paints.
-  screen.setContentMarginFromScreen(fui::Insets{
-      static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
-      static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
-      static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height)), static_cast<int16_t>(safe.x)});
+  if (deck::listsActive()) {
+    // Rows inside the panel drawChrome paints; no progress summary (labels only).
+    const int rowsTop = kDeckPanelTop + 44 + 18 + 13 * 150 * 70 / 7200 + 14;
+    screen.setContentMarginFromScreen(
+        fui::Insets{static_cast<int16_t>(rowsTop), 0, static_cast<int16_t>(metrics.buttonHintsHeight + 4), 0});
+  } else {
+    screen.setContentMarginFromScreen(fui::Insets{
+        static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
+        static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
+        static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height)), static_cast<int16_t>(safe.x)});
 
-  // Progress summary where the old sub-header band sat.
-  std::string progressLine;
-  if (totalPages > 0) {
-    progressLine = std::string(tr(STR_CHAPTER_PREFIX)) + std::to_string(currentPage) + "/" +
-                   std::to_string(totalPages) + std::string(tr(STR_PAGES_SEPARATOR));
+    // Progress summary where the old sub-header band sat.
+    std::string progressLine;
+    if (totalPages > 0) {
+      progressLine = std::string(tr(STR_CHAPTER_PREFIX)) + std::to_string(currentPage) + "/" +
+                     std::to_string(totalPages) + std::string(tr(STR_PAGES_SEPARATOR));
+    }
+    progressLine += std::string(tr(STR_BOOK_PREFIX)) + std::to_string(bookProgressPercent) + "%";
+    const fui::Rect band = screen.takeTop(static_cast<int16_t>(metrics.tabBarHeight));
+    const int16_t pad = screen.theme().headerSidePadding;
+    screen.target().text(band.inset(fui::Insets{0, pad, 0, pad}), progressLine.c_str(), screen.theme().smallText);
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
   }
-  progressLine += std::string(tr(STR_BOOK_PREFIX)) + std::to_string(bookProgressPercent) + "%";
-  const fui::Rect band = screen.takeTop(static_cast<int16_t>(metrics.tabBarHeight));
-  const int16_t pad = screen.theme().headerSidePadding;
-  screen.target().text(band.inset(fui::Insets{0, pad, 0, pad}), progressLine.c_str(), screen.theme().smallText);
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   // menuRowItems's labels/actionValue were set once in the constructor (see
   // buildMenuRowItems()); only rows with live values need refreshing here.
@@ -258,6 +266,24 @@ void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
 }
 
 void EpubReaderMenuActivity::drawChrome() {
+  if (deck::listsActive()) {
+    // Panel over the page: a notched top edge (step up at 62% of the width), black outline.
+    const int W = renderer.getScreenWidth();
+    const int H = renderer.getScreenHeight();
+    const int top = kDeckPanelTop;
+    const int notch = W * 62 / 100;
+    const int outer[][2] = {{0, top + 40}, {notch, top + 40}, {notch + 40, top}, {W, top}, {W, H}, {0, H}};
+    const int inner[][2] = {{0, top + 44}, {notch + 1, top + 44}, {notch + 41, top + 4}, {W, top + 4}, {W, H}, {0, H}};
+    int xs[6], ys[6];
+    for (int i = 0; i < 6; ++i) xs[i] = outer[i][0], ys[i] = outer[i][1];
+    renderer.fillPolygon(xs, ys, 6, true);
+    for (int i = 0; i < 6; ++i) xs[i] = inner[i][0], ys[i] = inner[i][1];
+    renderer.fillPolygon(xs, ys, 6, false);
+    const int cap = 13 * 150 * 70 / 7200;
+    renderer.drawText(deck::displayFont(13), 18, top + 44 + 18 - deck::displayCapOffset(renderer, 13), "READER MENU");
+    (void)cap;
+    return;
+  }
   // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery
   // indicator; the rest of the screen renders through the app.
   GUI.drawHeader(renderer, UITheme::getInstance().getHeaderRect(renderer, true, false), title.c_str());

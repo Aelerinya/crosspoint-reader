@@ -47,6 +47,11 @@ struct ListSpec {
   int markedIndex = -1;  // row drawn with the ◆ mark
 };
 
+// Slanted tab bar (spec.tabs...) with its top-left at (x, y); tabBarHeight
+// includes the space above and below.
+void drawTabBar(const GfxRenderer& renderer, int x, int y, const ListSpec& spec);
+int tabBarHeight(const GfxRenderer& renderer);
+
 // True when the Deck theme draws list screens itself (button boards only:
 // touch boards keep the FreeInkUI list and its hit testing).
 bool listsActive();

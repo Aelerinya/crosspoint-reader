@@ -64,6 +64,9 @@ class EpubReaderMenuActivity final : public UiListActivity {
   int listCount() const override { return static_cast<int>(menuItems.size()); }
   void buildScreen(UiScreen& screen) override;
   void deckListSpec(deck::ListSpec& spec) override { spec.style = deck::ListStyle::Menu; }
+  // Deck: a panel rising over the page (screen 05).
+  bool deckOverlay() const override { return true; }
+  static constexpr int kDeckPanelTop = 214;
   void activateIndex(int index) override;
   // Popup input runs before any button or touch handling.
   bool handleCustomInput() override;

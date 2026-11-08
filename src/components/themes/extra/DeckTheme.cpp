@@ -16,6 +16,7 @@
 #include "RecentBooksStore.h"
 #include "components/Sprite.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
 #include "fontIds.h"
 #include "images/DeckFox.h"
 #include "util/BookProgress.h"
@@ -37,6 +38,28 @@ int displayFont(const int size) {
   if (size >= 31) return kDisplay31;
   if (size >= 22) return kDisplay22;
   return kDisplay13;
+}
+
+int kanaFont() { return 0x0DEC4A4A; }
+
+const char* kanaFor(const std::string& label) {
+  static constexpr struct {
+    const char* label;
+    const char* kana;
+  } kTags[] = {
+      {"HOME", "ホーム"},        {"LIBRARY", "書庫"},  {"SELECT CHAPTER", "目次"},
+      {"INDEX", "目次"},         {"BOOKMARKS", "栞"},  {"GO TO", "移動"},
+      {"FILE TRANSFER", "転送"}, {"TRANSFER", "転送"}, {"HOTSPOT MODE", "転送"},
+      {"SETTINGS", "設定"},      {"DISPLAY", "設定"},  {"READER", "設定"},
+      {"CONTROLS", "設定"},      {"SYSTEM", "設定"},   {"CONNECTIVITY", "設定"},
+      {"SD CARD", "書庫"},       {"READ", "読書"},     {"FILES", "書庫"},
+      {"ONLINE", "接続"},        {"CLEAR", "完了"},    {"OPEN", "開く"},
+      {"SLEEP", "眠"},           {"WAKE", "起"},
+  };
+  for (const auto& t : kTags) {
+    if (label == t.label) return t.kana;
+  }
+  return nullptr;
 }
 
 // The fonts are built at size pt / 150 dpi, so ppem = size * 150 / 72.
@@ -282,12 +305,18 @@ void DeckTheme::drawHeader(const GfxRenderer& renderer, const Rect rect, const c
   const int maxText = statusX - left - 60;
   const std::string shown = renderer.truncatedText(tabFont, label.c_str(), maxText, EpdFontFamily::BOLD);
   const int textW = deck::trackedWidth(renderer, tabFont, shown.c_str(), 2, true);
-  const int tabW = textW + 12 + 26;
+  const char* kana = deck::kanaFor(label);
+  const int kanaW = kana ? renderer.getTextWidth(deck::kanaFont(), kana) + 8 : 0;
+  const int tabW = textW + kanaW + 12 + 26;
   const int xs[] = {left, left + tabW, left + tabW - 16, left};
   const int ys[] = {y, y, y + kTabH, y + kTabH};
   renderer.fillPolygon(xs, ys, 4, true);
   deck::drawTracked(renderer, tabFont, left + 12, y + (kTabH - renderer.getLineHeight(tabFont)) / 2, shown.c_str(), 2,
                     false, true);
+  if (kana) {
+    renderer.drawText(deck::kanaFont(), left + 12 + textW + 8,
+                      y + (kTabH - renderer.getLineHeight(deck::kanaFont())) / 2, kana, false);
+  }
 
   // Rule from the tab to the status block, then under it.
   renderer.fillRect(left + tabW - 8, lineY, right - (left + tabW - 8), 2, true);
@@ -579,6 +608,49 @@ Rect DeckTheme::drawBookOpening(const GfxRenderer& renderer, const char* title) 
 
 // ================================================================ reader status bar
 
+namespace {
+constexpr int kTopLinePad = 14;  // viewable top to the line's text
+}
+
+int DeckTheme::readerTopReserve() const {
+  if (!deck::listsActive()) return 0;
+  return kTopLinePad + 16 + 10;  // text line + gap above the page
+}
+
+void DeckTheme::drawReaderTopLine(GfxRenderer& renderer, const std::string& book, const std::string& chapter) const {
+  int mTop, mRight, mBottom, mLeft;
+  renderer.getOrientedViewableTRBL(&mTop, &mRight, &mBottom, &mLeft);
+  const int font = SMALL_FONT_ID;
+  const int left = mLeft + 28;
+  const int right = renderer.getScreenWidth() - mRight - 28;
+  const int y = mTop + kTopLinePad;
+  const int lh = renderer.getLineHeight(font);
+  int rx = right;
+  const auto drawRight = [&](const char* t) {
+    const int w = deck::trackedWidth(renderer, font, t, 1, true);
+    rx -= w;
+    deck::drawTracked(renderer, font, rx, y, t, 1, true, true);
+    rx -= 10;
+  };
+  char bat[8];
+  snprintf(bat, sizeof(bat), "%d%%", std::min<int>(100, powerManager.getBatteryPercentage()));
+  drawRight(bat);
+  char clock[10];
+  if (halClock.isAvailable() && halClock.formatTime(clock, sizeof(clock), SETTINGS.clockFormat == 1)) drawRight(clock);
+  // "BOOK · CHAPTER" when it fits, else the chapter alone.
+  const int maxW = (rx - left) * 4 / 5;
+  std::string label = deck::upper(book);
+  if (!chapter.empty()) {
+    const std::string both = label + " \xc2\xb7 " + deck::upper(chapter);
+    label = deck::trackedWidth(renderer, font, both.c_str(), 2, true) <= maxW ? both : deck::upper(chapter);
+  }
+  const std::string shown = renderer.truncatedText(font, label.c_str(), maxW, EpdFontFamily::BOLD);
+  deck::drawTracked(renderer, font, left, y, shown.c_str(), 2, true, true);
+  const int lx = left + deck::trackedWidth(renderer, font, shown.c_str(), 2, true) + 8;
+  if (rx - lx > 10) renderer.fillRect(lx, y + lh - 6, rx - lx, 2, true);
+  topLineDrawn = true;
+}
+
 void DeckTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
                               const bool fillMargin, const bool isPageBookmarked, const bool pageCountEstimated) const {
@@ -627,7 +699,10 @@ void DeckTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     lx += deck::trackedWidth(renderer, font, pages, 1, true) + 14;
   }
 
-  // Right: clock, battery, book %.
+  const bool topLine = topLineDrawn;
+  topLineDrawn = false;
+
+  // Right: clock, battery, book % (clock and battery sit in the top line when it is drawn).
   int rx = right;
   const auto drawRight = [&](const char* t) {
     const int w = deck::trackedWidth(renderer, font, t, 1, true);
@@ -640,7 +715,7 @@ void DeckTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     snprintf(pct, sizeof(pct), "%.0f%%", bookProgress);
     drawRight(pct);
   }
-  if (sb.showBattery) {
+  if (sb.showBattery && !topLine) {
     const int percent = std::min<int>(100, powerManager.getBatteryPercentage());
     if (sb.showBatteryPercent) {
       char bat[8];
@@ -651,7 +726,7 @@ void DeckTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     batteryCells(renderer, rx, textY + (lineH - 12) / 2, percent);
     rx -= 12;
   }
-  if (sb.showsClock() && halClock.isAvailable()) {
+  if (sb.showsClock() && halClock.isAvailable() && !topLine) {
     char clock[10];
     if (halClock.formatTime(clock, sizeof(clock), sb.clock12h)) drawRight(clock);
   }
@@ -660,7 +735,7 @@ void DeckTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   std::string mid;
   if (isPageBookmarked) {
     mid = "MARKED";
-  } else if (!title.empty()) {
+  } else if (!title.empty() && !topLine) {
     mid = deck::upper(title);
   }
   if (!mid.empty() && rx - lx > 40) {

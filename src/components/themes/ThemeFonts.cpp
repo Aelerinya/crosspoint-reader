@@ -8,6 +8,7 @@
 #include <builtinFonts/deck_display_31.h>
 #include <builtinFonts/deck_display_46.h>
 #include <builtinFonts/deck_display_76.h>
+#include <builtinFonts/deck_kana.h>
 #include <builtinFonts/deck_ui10_bold.h>
 #include <builtinFonts/deck_ui10_regular.h>
 #include <builtinFonts/deck_ui12_bold.h>
@@ -51,6 +52,8 @@ EpdFont deckDisplay13(&deck_display_13), deckDisplay22(&deck_display_22), deckDi
 EpdFontFamily deckDisplay13Family(13, &deckDisplay13), deckDisplay22Family(22, &deckDisplay22),
     deckDisplay31Family(31, &deckDisplay31), deckDisplay46Family(46, &deckDisplay46),
     deckDisplay76Family(76, &deckDisplay76);
+EpdFont deckKana(&deck_kana);
+EpdFontFamily deckKanaFamily(7, &deckKana);
 #endif
 
 const FontSet* fontsFor(const CrossPointSettings::UI_THEME theme) {
@@ -84,6 +87,8 @@ void applyThemeUiFonts(GfxRenderer& renderer, const CrossPointSettings::UI_THEME
   renderer.insertFont(deck::displayFont(31), deckDisplay31Family);
   renderer.insertFont(deck::displayFont(46), deckDisplay46Family);
   renderer.insertFont(deck::displayFont(76), deckDisplay76Family);
+  renderer.removeFont(deck::kanaFont());
+  renderer.insertFont(deck::kanaFont(), deckKanaFamily);
 #endif
   if (FontCacheManager* cache = renderer.getFontCacheManager()) {
     cache->clearCache();

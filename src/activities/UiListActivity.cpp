@@ -327,7 +327,8 @@ void UiListActivity::drawFooter() {
 }
 
 void UiListActivity::render(RenderLock&&) {
-  renderer.clearScreen();
+  const bool overlay = deck::listsActive() && deckOverlay();
+  if (!overlay) renderer.clearScreen();
   drawChrome();
   renderUi();
   // Wrapped labels grow rows, so fewer rows can fit than the fixed-height

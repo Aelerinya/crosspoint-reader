@@ -306,6 +306,10 @@ class BaseTheme {
   static void drawSelectionHandle(const GfxRenderer& renderer, Rect rect, bool left);
   static void drawSelectionActions(const GfxRenderer& renderer, Rect rect, int count = 3, int firstAction = 0);
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message) const;
+  // Reader top line: height reserved above the page text (0 = none) and the
+  // line itself, drawn with the status bar.
+  virtual int readerTopReserve() const { return 0; }
+  virtual void drawReaderTopLine(GfxRenderer&, const std::string& book, const std::string& chapter) const {}
   // Shown while a book opens for the first time (indexing). Default: the indexing popup.
   virtual Rect drawBookOpening(const GfxRenderer& renderer, const char* title) const;
   virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;

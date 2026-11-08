@@ -41,6 +41,9 @@ void LowBatteryActivity::render(RenderLock&&) {
   deck::fillChamfer(renderer, kSide + 3, y + 3, w - 6, h - 6, 13, false);
   const std::string title = "BATTERY " + std::to_string(percent) + "%";
   renderer.drawText(deck::displayFont(31), kSide + 18, y + 18 - deck::displayCapOffset(renderer, 31), title.c_str());
+  const char* kana = "充電";
+  renderer.drawText(deck::kanaFont(), kSide + w - 18 - renderer.getTextWidth(deck::kanaFont(), kana),
+                    y + 18 + titleCap - renderer.getLineHeight(deck::kanaFont()), kana);
   const int foxY = y + 18 + titleCap + 16;
   drawSprite(renderer, kFoxTired, kSide + (w - kFoxTired.width) / 2, foxY);
   // Clear the key bar so only this modal's key shows.
