@@ -333,7 +333,8 @@ void DeckTheme::drawHomeTile(GfxRenderer& renderer, const Rect rect, const Recen
   const auto& m = ExtraMetrics::deck;
   const int x = rect.x + kSide;
   const int w = rect.width - 2 * kSide;
-  const int progress = book ? loadBookProgress(book->path) : -1;
+  std::string chapter;
+  const int progress = book ? loadBookProgress(book->path, &chapter) : -1;
 
   // "// RESUME" stripe.
   const int labelH = renderer.getLineHeight(SMALL_FONT_ID);
@@ -355,10 +356,18 @@ void DeckTheme::drawHomeTile(GfxRenderer& renderer, const Rect rect, const Recen
   const int coverX = card.x + padX;
   const int coverY = card.y + padY;
 
+  // Covers only ink their dark levels: clear the slot to white first, or the
+  // black card shows through the cover's whites (a negative-looking cover).
+  renderer.fillRect(coverX, coverY, coverW, coverH, false);
   int drawn = 0;
   if (book) drawn = drawCoverInSlot(renderer, *book, Rect{coverX, coverY, coverW, coverH}, m.homeCoverHeight);
+  if (drawn > 0 && drawn < coverW) {
+    // Narrow cover: give the unused sides of the slot back to the card.
+    const int side = (coverW - drawn) / 2;
+    renderer.fillRect(coverX, coverY, side, coverH, true);
+    renderer.fillRect(coverX + side + drawn, coverY, coverW - side - drawn, coverH, true);
+  }
   if (drawn == 0) {
-    renderer.fillRect(coverX, coverY, coverW, coverH, false);
     deck::hatch(renderer, coverX + 6, coverY + 6, coverW - 12, coverH - 12);
   }
   // 2 px white frame around the cover slot (covers narrower than the slot are centred in it).
@@ -375,14 +384,43 @@ void DeckTheme::drawHomeTile(GfxRenderer& renderer, const Rect rect, const Recen
   deck::drawTracked(renderer, SMALL_FONT_ID, colX, ty, a.c_str(), 2, false, true);
   ty += labelH + 6;
 
-  // Title: big display face if it fits beside the cover, else the small one.
+  // Current chapter at the bottom of the column: "Chapter 1: Supply" ->
+  // slanted tag "CHAPTER 1" over "SUPPLY"; a chapter without a prefix is just the name.
+  int columnBottom = coverY + coverH;
+  if (!chapter.empty()) {
+    std::string tag, name = chapter;
+    const size_t colon = chapter.find(": ");
+    if (colon != std::string::npos && colon < 24) {
+      tag = chapter.substr(0, colon);
+      name = chapter.substr(colon + 2);
+    }
+    const int nameFont = UI_10_FONT_ID;
+    const int nameH = renderer.getLineHeight(nameFont);
+    const std::string n = renderer.truncatedText(nameFont, deck::upper(name).c_str(), colW, EpdFontFamily::BOLD);
+    const int nameY = columnBottom - nameH;
+    deck::drawTracked(renderer, nameFont, colX, nameY, n.c_str(), 1, false, true);
+    columnBottom = nameY - 4;
+    if (!tag.empty()) {
+      const std::string t =
+          renderer.truncatedText(SMALL_FONT_ID, deck::upper(tag).c_str(), colW - 24, EpdFontFamily::BOLD);
+      const int tagH = labelH + 4;
+      const int tagW = deck::trackedWidth(renderer, SMALL_FONT_ID, t.c_str(), 1, true) + 20;
+      const int tagY = columnBottom - tagH;
+      deck::drawSlant(renderer, colX, tagY, tagW, tagH, 2, false);
+      deck::drawTracked(renderer, SMALL_FONT_ID, colX + 10, tagY + 2, t.c_str(), 1, false, true);
+      columnBottom = tagY;
+    }
+    columnBottom -= 8;
+  }
+
+  // Title: big display face if it fits above the chapter, else the small one.
   const std::string title = book ? book->title : std::string(tr(STR_NO_OPEN_BOOK));
   const int titleTop = ty + 4;
   for (const int size : {22, 13}) {
     const int fontId = deck::displayFont(size);
     const int lh = deck::displayLineStep(size);
     const int capH = size * 150 * 70 / (72 * 100);
-    const int maxLines = std::max(1, (coverY + coverH - titleTop - capH) / lh + 1);
+    const int maxLines = std::max(1, (columnBottom - titleTop - capH) / lh + 1);
     bool cut = false;
     const auto lines = deck::wrapDisplay(renderer, fontId, title, colW, maxLines, &cut);
     if (cut && size != 13) continue;  // try the small face before losing words

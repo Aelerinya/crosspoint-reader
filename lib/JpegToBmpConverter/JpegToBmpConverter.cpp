@@ -249,6 +249,8 @@ struct BmpConvertCtx {
 
   std::unique_ptr<AtkinsonDitherer> atkinsonDitherer;
   std::unique_ptr<FloydSteinbergDitherer> fsDitherer;
+  uint32_t* histogram;     // thumbnail dry run: count output grays
+  const uint8_t* toneLut;  // thumbnail: contrast stretch before dithering
   std::unique_ptr<Atkinson1BitDitherer> atkinson1BitDitherer;
 
   uint8_t rowsSinceYield;
@@ -285,7 +287,9 @@ static void writeOutputRow(BmpConvertCtx* ctx, const uint8_t* srcRow, int outY) 
     if (ctx->atkinson1BitDitherer) ctx->atkinson1BitDitherer->nextRow();
   } else {
     for (int x = 0; x < ctx->outWidth; x++) {
-      const uint8_t gray = adjustPixel(srcRow[x]);
+      uint8_t gray = adjustPixel(srcRow[x]);
+      if (ctx->histogram) ctx->histogram[gray]++;
+      if (ctx->toneLut) gray = ctx->toneLut[gray];
       uint8_t twoBit;
       if (ctx->atkinsonDitherer) {
         twoBit = ctx->atkinsonDitherer->processPixel(gray, x);
@@ -407,7 +411,9 @@ static void flushScaledRow(BmpConvertCtx* ctx) {
     if (ctx->atkinson1BitDitherer) ctx->atkinson1BitDitherer->nextRow();
   } else {
     for (int x = 0; x < ctx->outWidth; x++) {
-      const uint8_t gray = adjustPixel((ctx->rowCount[x] > 0) ? (ctx->rowAccum[x] / ctx->rowCount[x]) : 0);
+      uint8_t gray = adjustPixel((ctx->rowCount[x] > 0) ? (ctx->rowAccum[x] / ctx->rowCount[x]) : 0);
+      if (ctx->histogram) ctx->histogram[gray]++;
+      if (ctx->toneLut) gray = ctx->toneLut[gray];
       uint8_t twoBit;
       if (ctx->atkinsonDitherer) {
         twoBit = ctx->atkinsonDitherer->processPixel(gray, x);
@@ -512,8 +518,8 @@ int bmpDrawCallback(JPEGDRAW* pDraw) {
 
 // Internal implementation with configurable target size and bit depth
 bool JpegToBmpConverter::jpegFileToBmpStreamInternal(HalFile& jpegFile, Print& bmpOut, int targetWidth,
-                                                     int targetHeight, bool oneBit, bool crop,
-                                                     bool originalThresholds) {
+                                                     int targetHeight, bool oneBit, bool crop, bool originalThresholds,
+                                                     Tone tone) {
   LOG_DBG("JPG", "Converting JPEG to %s BMP (target: %dx%d)", oneBit ? "1-bit" : "2-bit", targetWidth, targetHeight);
 
   if (ESP.getFreeHeap() < MIN_FREE_HEAP) {
@@ -635,6 +641,8 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(HalFile& jpegFile, Print& b
   ctx.rowsSinceYield = 0;
   ctx.blocksSinceYield = 0;
   ctx.error = false;
+  ctx.histogram = tone.histogram;
+  ctx.toneLut = tone.toneLut;
 
   // MCU row buffer: MAX_MCU_HEIGHT rows × decoded srcWidth columns of grayscale
   ctx.mcuBuf = makeUniqueNoThrow<uint8_t[]>(MAX_MCU_HEIGHT * ctx.srcWidth);
@@ -680,7 +688,15 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(HalFile& jpegFile, Print& b
       return false;
     }
   } else if (!USE_8BIT_OUTPUT) {
-    if (USE_ATKINSON) {
+    if (tone.toneLut || tone.histogram) {
+      // Thumbnails: Floyd-Steinberg keeps the whole error, so small covers keep
+      // their mid-tones (Atkinson drops a quarter and flattens them).
+      ctx.fsDitherer = makeUniqueNoThrow<FloydSteinbergDitherer>(outWidth, originalThresholds);
+      if (!ctx.fsDitherer || !ctx.fsDitherer->isValid()) {
+        LOG_ERR("JPG", "OOM: FloydSteinbergDitherer");
+        return false;
+      }
+    } else if (USE_ATKINSON) {
       ctx.atkinsonDitherer = makeUniqueNoThrow<AtkinsonDitherer>(outWidth, originalThresholds);
       if (!ctx.atkinsonDitherer || !ctx.atkinsonDitherer->isValid()) {
         LOG_ERR("JPG", "OOM: AtkinsonDitherer");
@@ -721,10 +737,67 @@ bool JpegToBmpConverter::jpegFileToBmpStream(HalFile& jpegFile, Print& bmpOut, b
   return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetWidth, targetHeight, false, crop, originalThresholds);
 }
 
-// Convert with custom target size (for thumbnails, 2-bit)
+namespace {
+// Swallows the dry run's BMP output.
+class NullPrint final : public Print {
+ public:
+  size_t write(uint8_t) override { return 1; }
+  size_t write(const uint8_t*, size_t size) override { return size; }
+};
+}  // namespace
+
+// Convert with custom target size (for thumbnails, 2-bit). Two decodes: the
+// first only measures the cover's grays, the second stretches its 1st-99th
+// percentile to the full range before dithering, so small dark covers keep detail.
 bool JpegToBmpConverter::jpegFileToBmpStreamWithSize(HalFile& jpegFile, Print& bmpOut, int targetMaxWidth,
                                                      int targetMaxHeight) {
-  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetMaxWidth, targetMaxHeight, false);
+  auto histogram = makeUniqueNoThrow<uint32_t[]>(256);
+  auto lut = makeUniqueNoThrow<uint8_t[]>(256);
+  bool stretched = false;
+  if (histogram && lut) {
+    memset(histogram.get(), 0, 256 * sizeof(uint32_t));
+    NullPrint dry;
+    Tone measure;
+    measure.histogram = histogram.get();
+    if (jpegFileToBmpStreamInternal(jpegFile, dry, targetMaxWidth, targetMaxHeight, false, true, false, measure) &&
+        jpegFile.seekSet(0)) {
+      uint32_t total = 0;
+      for (int i = 0; i < 256; i++) total += histogram[i];
+      int low = 0, high = 255;
+      uint32_t acc = 0;
+      for (int i = 0; i < 256; i++) {
+        acc += histogram[i];
+        if (acc * 100 >= total) {
+          low = i;
+          break;
+        }
+      }
+      acc = 0;
+      for (int i = 255; i >= 0; i--) {
+        acc += histogram[i];
+        if (acc * 100 >= total) {
+          high = i;
+          break;
+        }
+      }
+      if (total > 0 && high - low >= 32) {
+        for (int i = 0; i < 256; i++) {
+          const int v = (i - low) * 255 / (high - low);
+          lut[i] = static_cast<uint8_t>(v < 0 ? 0 : (v > 255 ? 255 : v));
+        }
+        stretched = true;
+      }
+    } else {
+      jpegFile.seekSet(0);
+    }
+  }
+  Tone tone;
+  if (stretched) {
+    tone.toneLut = lut.get();
+  } else if (histogram) {
+    tone.histogram = histogram.get();  // still selects Floyd-Steinberg
+  }
+  return jpegFileToBmpStreamInternal(jpegFile, bmpOut, targetMaxWidth, targetMaxHeight, false, true, false, tone);
 }
 
 // Convert to 1-bit BMP (black and white only, no grays)

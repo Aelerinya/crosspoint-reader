@@ -2476,13 +2476,13 @@ size_t GfxRenderer::getBufferSize() const { return frameBufferSize; }
 // void GfxRenderer::grayscaleRevert() const { display.grayscaleRevert(); }
 
 void GfxRenderer::displayGrayscaleBase(HalDisplay::RefreshMode fallback) const {
-  runBeforeNextDisplay();
+  beforeNextDisplay_ = nullptr;  // no extra frames inside a grayscale sequence
   absoluteGrayPlanes = false;
   display.displayGrayscaleBase(applyPromotedRefresh(fallback), fadingFix);
 }
 
 bool GfxRenderer::displayGrayscaleBase(HalDisplay::GrayscaleMode mode, HalDisplay::RefreshMode fallback) const {
-  runBeforeNextDisplay();
+  beforeNextDisplay_ = nullptr;  // no extra frames inside a grayscale sequence
   absoluteGrayPlanes = false;
   if (!display.displayGrayscaleBase(mode, promotedRefreshPending_ ? promotedRefresh_ : fallback, fadingFix))
     return false;

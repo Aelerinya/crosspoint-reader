@@ -24,6 +24,8 @@ class SleepActivity final : public Activity {
   void renderLastScreenSleepScreen() const;
   void renderTransparentCustomSleepScreen() const;
   void renderBlankSleepScreen() const;
+  // Deck: the cover sleep screen's bottom bar text (empty = no bar).
+  mutable std::string deckCoverBar;
 
   bool fromTimeout = false;
   // Cover + Transparent: the cover under the overlay, and the same cover while its gray planes are redrawn.

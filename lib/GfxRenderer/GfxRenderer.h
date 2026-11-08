@@ -326,8 +326,9 @@ class GfxRenderer {
   void maskRoundedRectOutsideCorners(int x, int y, int width, int height, int radius, Color color = Color::White) const;
   // Theme hook (Deck): rounded rects become chamfered (radius = cut, capped at 14 px).
   void setChamferCorners(bool on) { chamferCorners_ = on; }
-  // One-shot hook run at the start of the next displayBuffer*/displayGrayscaleBase
-  // call, before that frame goes out (Deck screen transitions).
+  // One-shot hook run at the start of the next displayBuffer* call, before that
+  // frame goes out (Deck screen transitions). A grayscale base drops it instead:
+  // extra refreshes there would disturb the gray pass.
   void setBeforeNextDisplay(std::function<void()> hook) const { beforeNextDisplay_ = std::move(hook); }
   bool chamferCorners() const { return chamferCorners_; }
   void fillRect(int x, int y, int width, int height, bool state = true) const;

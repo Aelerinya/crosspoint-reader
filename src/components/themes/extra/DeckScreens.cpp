@@ -159,6 +159,41 @@ void drawChapterClear(const GfxRenderer& r, const char* book, const char* finish
   if (x < W - kPad) r.fillRect(x, cy - 1, W - kPad - x, 2, true);
 }
 
+namespace {
+int coverBarHeight(const GfxRenderer& r) { return r.getLineHeight(SMALL_FONT_ID) + 20 + 10; }  // + notch step
+}  // namespace
+
+Rect coverSleepBarBand(const GfxRenderer& r) {
+  const int h = coverBarHeight(r);
+  return Rect{0, r.getScreenHeight() - h + 10, r.getScreenWidth(), h - 10};
+}
+
+void drawCoverSleepBar(const GfxRenderer& r, const char* right, const bool maskOnly) {
+  const int W = r.getScreenWidth();
+  const int H = r.getScreenHeight();
+  const int font = SMALL_FONT_ID;
+  const int lh = r.getLineHeight(font);
+  const int h = coverBarHeight(r);
+  const int top = H - h;
+  const int step = W * 40 / 100;
+  const int xs[] = {0, step, step + 10, W, W, 0};
+  const int ys[] = {top + 10, top + 10, top, top, H, H};
+  r.fillPolygon(xs, ys, 6, true);
+  if (maskOnly) return;
+  const int ty = top + 10 + 10;
+  const int cy = ty + lh / 2;
+  const int dx[] = {18 + 5, 18 + 10, 18 + 5, 18};
+  const int dy[] = {cy - 5, cy, cy + 5, cy};
+  r.fillPolygon(dx, dy, 4, false);
+  drawTracked(r, font, 18 + 16, ty, "HOLD PWR TO WAKE", 3, false, true);
+  if (right && right[0]) {
+    const int leftW = 18 + 16 + trackedWidth(r, font, "HOLD PWR TO WAKE", 3, true) + 20;
+    const std::string t = r.truncatedText(font, upper(right).c_str(), W - 18 - leftW, EpdFontFamily::BOLD);
+    const int tw = trackedWidth(r, font, t.c_str(), 2, true);
+    drawTracked(r, font, W - 18 - tw, ty, t.c_str(), 2, false, true);
+  }
+}
+
 void drawQuickResumeTab(const GfxRenderer& r) {
   const auto saved = r.getOrientation();
   const_cast<GfxRenderer&>(r).setOrientation(GfxRenderer::Orientation::Portrait);

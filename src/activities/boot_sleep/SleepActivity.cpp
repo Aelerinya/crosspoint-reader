@@ -25,12 +25,14 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "RecentBooksStore.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "components/themes/extra/DeckScreens.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
 #include "images/MoonIcon.h"
+#include "util/BookProgress.h"
 
 namespace {
 // Metalio: B/W sleep images use the full 0xF7 waveform instead of HALF (two
@@ -866,6 +868,17 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
       SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
     renderer.invertScreen();
   }
+  // Deck bar: drawn into the B/W frame; its text band is kept for absolute gray planes.
+  std::unique_ptr<uint8_t[]> barBand;
+  size_t barBandBytes = 0;
+  const Rect band = deck::coverSleepBarBand(renderer);
+  if (!deckCoverBar.empty()) {
+    deck::drawCoverSleepBar(renderer, deckCoverBar.c_str());
+    barBandBytes = renderer.getRegionByteSize(band.x, band.y, band.width, band.height);
+    barBand = makeUniqueNoThrow<uint8_t[]>(barBandBytes);
+    if (barBand && !renderer.copyRegionToBuffer(band.x, band.y, band.width, band.height, barBand.get(), barBandBytes))
+      barBand.reset();
+  }
 
   // Cover + Transparent: the B/W cover is the overlay's background; the overlay renderers redraw its gray planes.
   if (overlayCover == &bitmap) {
@@ -915,6 +928,17 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
       if (!renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY, preserveBackground)) {
         ready = false;
         break;
+      }
+      // Keep the Deck bar out of the cover's grays: absolute planes hold real
+      // levels (redraw it); overlay planes get "no gray" over its shape.
+      if (!deckCoverBar.empty()) {
+        // Keep the bar out of the cover's grays. Overlay planes: "no gray" over its
+        // shape. Absolute planes hold levels: its shape black, then the B/W text
+        // band copied in (black bits = level 0, white = level 3 in both planes).
+        deck::drawCoverSleepBar(renderer, deckCoverBar.c_str(), true);
+        if (absolute && barBand) {
+          renderer.copyBufferToRegion(band.x, band.y, band.width, band.height, barBand.get(), barBandBytes);
+        }
       }
       if (plane == GfxRenderer::GRAYSCALE_LSB)
         renderer.copyGrayscaleLsbBuffers();
@@ -1094,7 +1118,19 @@ void SleepActivity::renderCoverSleepScreen() const {
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       LOG_DBG("SLP", "Rendering sleep cover: %s", coverBmpPath.c_str());
       if (withOverlay) overlayCover = &bitmap;
+      if (!withOverlay && SETTINGS.uiTheme == CrossPointSettings::DECK) {
+        // Bar text: the current chapter, else the book title.
+        std::string chapter;
+        loadBookProgress(APP_STATE.openEpubPath, &chapter);
+        if (chapter.empty()) {
+          for (const auto& b : RECENT_BOOKS.getBooks()) {
+            if (b.path == APP_STATE.openEpubPath) chapter = b.title;
+          }
+        }
+        deckCoverBar = chapter.empty() ? std::string(" ") : chapter;
+      }
       renderBitmapSleepScreen(bitmap);
+      deckCoverBar.clear();
       overlayCover = nullptr;
       return;
     }
