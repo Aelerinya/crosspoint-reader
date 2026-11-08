@@ -30,6 +30,8 @@ class ButtonRemapActivity final : public Activity, private UiAppHost {
 
   static void screenTrampoline(UiScreen& screen, void* user);
   void buildScreen(UiScreen& screen);
+  // Deck v2 layout: device diagram, the role in big type, Operator at the key.
+  void renderDeck();
   // Commit temporary mapping to settings.
   void applyTempMapping();
   // Returns false if a hardware button is already assigned to a different role.

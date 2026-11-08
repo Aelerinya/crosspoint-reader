@@ -52,6 +52,8 @@ class TextSettingsActivity final : public UiTabListActivity {
   void stepTab(int direction) override { switchTab(direction); }
   void drawChrome() override;
   void drawFooter() override;
+  void deckListSpec(deck::ListSpec& spec) override;
+  void deckRowExtra(int index, deck::Row& row) override;
   bool handleButtons() override;
   bool handleCustomInput() override;
 

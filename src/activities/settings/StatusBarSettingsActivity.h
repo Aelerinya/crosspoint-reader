@@ -26,6 +26,10 @@ class StatusBarSettingsActivity final : public UiListActivity {
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int index) override;
   bool handleCustomInput() override;
+  void deckListSpec(deck::ListSpec& spec) override { spec.style = deck::ListStyle::Rows; }
+  void deckRowExtra(int index, deck::Row& row) override {
+    if (!row.hasToggle) row.kind = deck::RowKind::Enum;
+  }
 
   std::string rowValueText(int index);
 

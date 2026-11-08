@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 class GfxRenderer;
 #include "components/themes/BaseTheme.h"
 
@@ -35,6 +37,36 @@ void drawUsbConnected(const GfxRenderer& renderer);
 // Modal over the current frame: hatch shade, LOW BATTERY card with the percent.
 void drawLowBatteryCard(const GfxRenderer& renderer, int percent);
 void drawFlashingScreen(const GfxRenderer& renderer, int percent);
-// Settings: framed illustration panel (y 50..390) above the rows.
+// Settings: framed illustration panel (y 51..351) above the rows.
 void drawSettingsPanel(const GfxRenderer& renderer);
+
+// v2 settings / Wi-Fi pieces (DeckV2Settings.cpp).
+// Display-face title at x 16 with its capitals' top at capTop, kana superscript
+// (looked up when null); returns the right edge.
+int drawBigTitle(const GfxRenderer& renderer, int capTop, const char* title, const char* kana = nullptr, int size = 31);
+int bigTitleCap(int size);
+// 3 px rule across the content width.
+void drawTitleRule(const GfxRenderer& renderer, int y);
+const char* englishLanguageName(uint8_t language);
+// Keyboard key: outlined square with the bottom-right corner cut, filled when focused;
+// `alt` is the long-press character drawn small in the top-right corner.
+void drawKeyCap(const GfxRenderer& renderer, int x, int y, int w, int h, const char* label, const char* alt,
+                bool focused, int font);
+// "// PREVIEW · caption" and the layout's first three letter rows; returns the bottom.
+int drawKeyboardPreview(const GfxRenderer& renderer, int y, uint8_t layoutId, const char* caption);
+// Black state panel (SCANNING / CONNECTING / FAILED / CALIBRE) at y 61..170 with the
+// title in display face and a kana superscript (looked up when null).
+void drawStatePanel(const GfxRenderer& renderer, const char* title, const char* kana = nullptr);
+// Black tags with tracked white text at (x, y): pointed right end / plain block. Return the height.
+int drawArrowTag(const GfxRenderer& renderer, int x, int y, const char* text);
+int drawBlockTag(const GfxRenderer& renderer, int x, int y, const char* text);
+// Four slanted signal bars (14 px tall) at (x, y), `level` 0..4 filled.
+void drawSignalBars(const GfxRenderer& renderer, int x, int y, int level, bool black = true);
+// Small outlined tag ("WPA2") right-aligned at `right`, centred on cy.
+void drawOutlineTag(const GfxRenderer& renderer, int right, int cy, const char* text, bool black = true);
+// Transfer menu, Join a network chosen: 6 filling segments in its (inverted) card
+// and "STARTING WI-FI..." under the cards; refreshes the panel.
+void drawJoinLoading(const GfxRenderer& renderer);
+// Diagonal hatch over the whole frame (modal backdrop).
+void hatchShade(const GfxRenderer& renderer);
 }  // namespace deck

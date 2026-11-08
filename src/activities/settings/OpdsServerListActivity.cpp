@@ -15,6 +15,10 @@
 #include "activities/browser/OpdsBookBrowserActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckScreens.h"
+#include "components/themes/extra/DeckTheme.h"
+#include "fontIds.h"
 #include "util/OpdsFilename.h"
 
 namespace fui = freeink::ui;
@@ -197,8 +201,72 @@ void OpdsServerListActivity::handleSelection() {
   }
 }
 
+int OpdsServerListActivity::deckRowsTop() const { return OPDS_STORE.getServers().empty() ? 284 : 116; }
+
+void OpdsServerListActivity::drawChrome() {
+  if (!deck::listsActive()) {
+    UiListActivity::drawChrome();
+    return;
+  }
+  const GfxRenderer& r = renderer;
+  const int W = r.getScreenWidth();
+  deck::drawSmallHeader(r, "OPDS");
+  deck::drawBigTitle(r, 53, "CATALOGUES", "書店");
+  if (!OPDS_STORE.getServers().empty()) {
+    deck::drawTitleRule(r, 113);
+    return;
+  }
+  // Empty state: dashed box.
+  const int x0 = 16, y0 = 113, w = W - 32, h = 149;
+  for (int x = x0; x < x0 + w; x += 8) {
+    r.fillRect(x, y0, 5, 3, true);
+    r.fillRect(x, y0 + h - 3, 5, 3, true);
+  }
+  for (int y = y0; y < y0 + h; y += 8) {
+    r.fillRect(x0, y, 3, 5, true);
+    r.fillRect(x0 + w - 3, y, 3, 5, true);
+  }
+  const int big = deck::displayFont(22);
+  const std::string title = "NO SERVERS YET";
+  const int tw = r.getTextWidth(big, title.c_str());
+  r.drawText(big, (W - tw) / 2, y0 + 50 - deck::displayCapOffset(r, 22), title.c_str());
+  const char* sub = "ADD AN OPDS CATALOGUE URL";
+  const int sw = deck::trackedWidth(r, SMALL_FONT_ID, sub, 2, true);
+  deck::drawTracked(r, SMALL_FONT_ID, (W - sw) / 2, y0 + 98, sub, 2, true, true);
+}
+
+void OpdsServerListActivity::deckRowExtra(const int index, deck::Row& row) {
+  if (index < 0 || index >= static_cast<int>(rowItems_.size())) return;
+  const auto serverCount = static_cast<int>(OPDS_STORE.getServers().size());
+  if (index == serverCount) {
+    row.label = "+ " + row.label;
+    row.kind = deck::RowKind::Action;
+  } else {
+    row.right = rowItems_[index].subtitle ? rowItems_[index].subtitle : "";
+    row.kind = index < serverCount ? deck::RowKind::Action : deck::RowKind::Enum;
+  }
+}
+
 void OpdsServerListActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
+  if (deck::listsActive()) {
+    screen.setContentMarginFromScreen(
+        fui::Insets{static_cast<int16_t>(deckRowsTop()), 0, static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+    if (!pickerMode) {
+      const auto serverCount = static_cast<int>(OPDS_STORE.getServers().size());
+      rowItems_[serverCount + 1].subtitle =
+          SETTINGS.opdsDownloadFolder[0] ? SETTINGS.opdsDownloadFolder : tr(STR_OPDS_SD_ROOT);
+      rowItems_[serverCount + 2].subtitle = I18N.get(opdsFormatLabel(SETTINGS.opdsFilenameFormat));
+    }
+    fui::ListProps props;
+    props.items = rowItems_.data();
+    props.count = static_cast<uint16_t>(rowItems_.size());
+    props.action = ACTION_ROW;
+    props.inputMask = fui::InputTouch;
+    syncListViewport(screen, props);
+    screen.list(props);
+    return;
+  }
   // Content below the GUI.drawHeader band, above the button hints; derived
   // from the safe area so board bezel insets apply (same as LanguageSelect).
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);

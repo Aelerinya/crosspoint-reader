@@ -20,8 +20,10 @@
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
+#include "components/themes/extra/DeckScreens.h"
 #include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
+#include "images/DeckOperator.h"
 #include "util/BookCacheUtils.h"
 #include "util/BookmarkUtil.h"
 
@@ -695,9 +697,32 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
   screen.list(props);
 }
 
+void FileBrowserActivity::deckListSpec(deck::ListSpec& spec) {
+  spec.style = deck::ListStyle::Files;
+  if (mode == Mode::PickFirmware) {
+    spec.subtitles = true;  // size line under each .bin
+    if (deck::companionOn()) spec.fox = &kOpTorch;
+  }
+}
+
 void FileBrowserActivity::deckRowExtra(const int index, deck::Row& row) {
   if (index < 0 || index >= static_cast<int>(files.size())) return;
-  row.folder = files[static_cast<size_t>(index)].back() == '/';
+  const std::string& name = files[static_cast<size_t>(index)];
+  row.folder = name.back() == '/';
+  if (mode != Mode::PickFirmware || row.folder) return;
+  // Firmware rows: "1.6 MB" under the name (one small open per drawn row; the picker lists few files).
+  std::string path = basepath;
+  if (path.empty() || path.back() != '/') path += '/';
+  path += name;
+  HalFile file;
+  if (Storage.openFileForRead("FWPICK", path, file)) {
+    const uint64_t bytes = file.fileSize64();
+    file.close();
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%u.%u MB", static_cast<unsigned>(bytes / (1024 * 1024)),
+             static_cast<unsigned>((bytes % (1024 * 1024)) * 10 / (1024 * 1024)));
+    row.kicker = buf;
+  }
 }
 
 void FileBrowserActivity::drawChrome() {
@@ -711,7 +736,15 @@ void FileBrowserActivity::drawChrome() {
   if (deck::listsActive()) {
     // Deck v2: FILES header, folder name huge with its item count, path band at the bottom.
     constexpr int kX = 16;
-    deck::drawSmallHeader(renderer, "FILES");
+    if (mode == Mode::PickFirmware) {
+      deck::drawSmallHeader(renderer, "FIRMWARE");
+      const int right = deck::drawBigTitle(renderer, 58, "PICK FIRMWARE", "");
+      deck::drawTracked(renderer, SMALL_FONT_ID, right + 12,
+                        58 + deck::bigTitleCap(31) - renderer.getLineHeight(SMALL_FONT_ID), ".BIN ONLY", 2, true, true);
+      // Path band as in Files, below.
+    } else {
+      deck::drawSmallHeader(renderer, "FILES");
+    }
     const int size = 22;
     const int font = deck::displayFont(size);
     const int cap = size * 150 * 70 / 7200;
@@ -719,13 +752,15 @@ void FileBrowserActivity::drawChrome() {
     char count[24];
     snprintf(count, sizeof(count), files.size() == 1 ? "%d ITEM" : "%d ITEMS", static_cast<int>(files.size()));
     const int cw = deck::trackedWidth(renderer, SMALL_FONT_ID, count, 2, true);
-    const std::string t = renderer.truncatedText(font, deck::upper(folderName).c_str(), pageWidth - 2 * kX - cw - 60);
-    renderer.drawText(font, kX, base - cap - deck::displayCapOffset(renderer, size), t.c_str());
-    const int tw = renderer.getTextWidth(font, t.c_str());
-    deck::drawTracked(renderer, SMALL_FONT_ID, kX + tw + 12, base - renderer.getLineHeight(SMALL_FONT_ID) + 2, count, 2,
-                      true, true);
-    const int sx = kX + tw + 12 + cw + 12;
-    if (pageWidth - kX - sx > 20) deck::hatch(renderer, sx, base - 18, pageWidth - kX - sx, 12);
+    if (mode != Mode::PickFirmware) {
+      const std::string t = renderer.truncatedText(font, deck::upper(folderName).c_str(), pageWidth - 2 * kX - cw - 60);
+      renderer.drawText(font, kX, base - cap - deck::displayCapOffset(renderer, size), t.c_str());
+      const int tw = renderer.getTextWidth(font, t.c_str());
+      deck::drawTracked(renderer, SMALL_FONT_ID, kX + tw + 12, base - renderer.getLineHeight(SMALL_FONT_ID) + 2, count,
+                        2, true, true);
+      const int sx = kX + tw + 12 + cw + 12;
+      if (pageWidth - kX - sx > 20) deck::hatch(renderer, sx, base - 18, pageWidth - kX - sx, 12);
+    }
     renderer.fillRect(kX, 112, pageWidth - 2 * kX, 3, true);
     // Path band: black, slanted right end, "SD  /path".
     const int bandH = 34;
@@ -750,7 +785,8 @@ void FileBrowserActivity::drawFooter() {
   // STR_SELECT instead. Directories in the same picker still descend, so keep STR_OPEN there.
   const bool selectingFirmwareFile = mode == Mode::PickFirmware && !files.empty() && nav.selected >= 0 &&
                                      nav.selected < listCount() && files[nav.selected].back() != '/';
-  const char* confirmLabel = files.empty() ? "" : (selectingFirmwareFile ? tr(STR_SELECT) : tr(STR_OPEN));
+  const char* confirmLabel =
+      files.empty() ? "" : (selectingFirmwareFile ? (deck::listsActive() ? "FLASH" : tr(STR_SELECT)) : tr(STR_OPEN));
   const auto labels = mappedInput.mapLabels(backLabel, confirmLabel, files.empty() ? "" : tr(STR_DIR_UP),
                                             files.empty() ? "" : tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

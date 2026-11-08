@@ -17,6 +17,7 @@
 #include <builtinFonts/deck_ui8_regular.h>
 #endif
 
+#include "components/themes/extra/DeckList.h"
 #include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
 
@@ -93,6 +94,8 @@ void applyThemeUiFonts(GfxRenderer& renderer, const CrossPointSettings::UI_THEME
   renderer.insertFont(deck::displayFont(76), deckDisplay76Family);
   renderer.removeFont(deck::kanaFont());
   renderer.insertFont(deck::kanaFont(), deckKanaFamily);
+  renderer.removeFont(deck::nativeFont());
+  renderer.insertFont(deck::nativeFont(), ui12FontFamily);  // stock face: names in any script
 #endif
   if (FontCacheManager* cache = renderer.getFontCacheManager()) {
     cache->clearCache();

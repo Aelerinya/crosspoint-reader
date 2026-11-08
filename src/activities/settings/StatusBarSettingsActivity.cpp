@@ -10,6 +10,8 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -189,9 +191,14 @@ void StatusBarSettingsActivity::buildScreen(UiScreen& screen) {
   const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
   const auto previewFooter =
       static_cast<int16_t>(statusBarHeight + verticalPreviewTextPadding + metrics.verticalSpacing);
-  screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
-                                                static_cast<int16_t>(metrics.buttonHintsHeight + previewFooter), 0});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  if (deck::listsActive()) {
+    // Rows under the framed preview render() draws at the top (y 53..172).
+    screen.setContentMarginFromScreen(fui::Insets{205, 0, static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  } else {
+    screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
+                                                  static_cast<int16_t>(metrics.buttonHintsHeight + previewFooter), 0});
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  }
 
   // rowItems_'s labels/actionValue were set once in onEnter(); only the live
   // value text needs refreshing here, by assigning into the existing
@@ -224,6 +231,33 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
 
   auto metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
+
+  if (deck::listsActive()) {
+    // Framed live preview: two lines of book text over the real status bar.
+    deck::drawSmallHeader(renderer, "STATUS BAR");
+    renderer.drawRect(16, 53, pageWidth - 32, 120, 3, true);
+    const int bookFont = deck::nativeFont();
+    const int lh = renderer.getLineHeight(bookFont);
+    renderer.drawText(
+        bookFont, 33, 68,
+        renderer.truncatedText(bookFont, "...and it was drunk anyway. Nobody spoke", pageWidth - 66).c_str());
+    renderer.drawText(
+        bookFont, 33, 70 + lh,
+        renderer.truncatedText(bookFont, "much. Boots were unlaced, blades wiped.", pageWidth - 66).c_str());
+    std::string title;
+    if (SETTINGS.statusBarTitle == CrossPointSettings::STATUS_BAR_TITLE::BOOK_TITLE) {
+      title = tr(STR_EXAMPLE_BOOK);
+    } else if (SETTINGS.statusBarTitle == CrossPointSettings::STATUS_BAR_TITLE::CHAPTER_TITLE) {
+      title = tr(STR_EXAMPLE_CHAPTER);
+    }
+    GUI.drawStatusBar(renderer, 75, 8, 32, title, renderer.getScreenHeight() - 168, 0, false);
+    deck::drawTracked(renderer, SMALL_FONT_ID, 16, 182, "// LIVE PREVIEW", 2, true, true);
+    renderUi();
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
 
   // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery
   // indicator; the list renders through the app; the preview stays raw.

@@ -44,6 +44,8 @@
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckScreens.h"
 #include "fontIds.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
@@ -193,7 +195,11 @@ void silentRestartToJoinNetwork() {
 #endif
   armSilentReboot(SILENT_REBOOT_TARGET_JOIN_NETWORK);
   LOG_DBG("MAIN", "Silent restart (target=join-network)");
-  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  if (deck::listsActive()) {
+    deck::drawJoinLoading(renderer);  // over the Transfer menu still on screen
+  } else {
+    GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  }
   delay(50);
   ESP.restart();
 }

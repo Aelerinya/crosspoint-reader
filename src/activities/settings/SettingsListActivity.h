@@ -22,6 +22,9 @@ class SettingsListActivity final : public UiListActivity {
   void activateIndex(int index) override;
   void onBackButton() override;
   void drawChrome() override;
+  void drawFooter() override;
+  void deckListSpec(deck::ListSpec& spec) override { spec.style = deck::ListStyle::Categories; }
+  void deckRowExtra(int index, deck::Row& row) override;
 
  public:
   explicit SettingsListActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

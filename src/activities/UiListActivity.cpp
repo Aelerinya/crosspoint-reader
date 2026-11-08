@@ -209,13 +209,22 @@ void UiListActivity::navigateButtons() {
   });
 }
 
+namespace {
+// v2 row styles run edge to edge at the design's 16 px margins.
+Rect deckListArea(const fui::Rect body, const deck::ListSpec& spec, const int screenW) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  if (spec.style == deck::ListStyle::Rows || spec.style == deck::ListStyle::Categories ||
+      spec.style == deck::ListStyle::Pick) {
+    return Rect{16, body.y, screenW - 32, body.height};
+  }
+  return Rect{body.x + metrics.contentSidePadding, body.y, body.width - 2 * metrics.contentSidePadding, body.height};
+}
+}  // namespace
+
 void UiListActivity::drawDeckListViewport(UiScreen& screen, const int selectionOffset) {
   deck::ListSpec spec;
   deckListSpec(spec);
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const fui::Rect body = screen.body();
-  const Rect area{body.x + metrics.contentSidePadding, body.y, body.width - 2 * metrics.contentSidePadding,
-                  body.height};
+  const Rect area = deckListArea(screen.body(), spec, renderer.getScreenWidth());
   auto& n = activeNav();
   int top = n.top;
   const int visible = deck::listViewport(renderer, area, spec, listCount(), n.selected - selectionOffset, top);
@@ -226,10 +235,7 @@ void UiListActivity::drawDeckListViewport(UiScreen& screen, const int selectionO
 void UiListActivity::drawDeckList(UiScreen& screen, fui::ListProps& props, const int selectionOffset) {
   deck::ListSpec spec;
   deckListSpec(spec);
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const fui::Rect body = screen.body();
-  const Rect area{body.x + metrics.contentSidePadding, body.y, body.width - 2 * metrics.contentSidePadding,
-                  body.height};
+  const Rect area = deckListArea(screen.body(), spec, renderer.getScreenWidth());
   auto& n = activeNav();
   const int count = listCount();
   const int selected = n.selected - selectionOffset;

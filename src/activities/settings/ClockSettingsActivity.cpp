@@ -6,6 +6,8 @@
 #include <Logging.h>
 #include <Memory.h>
 
+#include <cstdio>
+#include <ctime>
 #include <memory>
 
 #include "ClockSyncActivity.h"
@@ -13,6 +15,9 @@
 #include "MappedInputManager.h"
 #include "TimezonePickerActivity.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckScreens.h"
+#include "components/themes/extra/DeckTheme.h"
+#include "fontIds.h"
 #include "util/Timezones.h"
 
 namespace fui = freeink::ui;
@@ -83,11 +88,75 @@ void ClockSettingsActivity::activateIndex(const int index) {
   requestUpdate();
 }
 
+namespace {
+constexpr int kDeckRowsTop = 271;
+}  // namespace
+
+void ClockSettingsActivity::drawChrome() {
+  if (!deck::listsActive()) {
+    UiListActivity::drawChrome();
+    return;
+  }
+  deck::drawSmallHeader(renderer, "CLOCK", "");
+  const int W = renderer.getScreenWidth();
+  struct tm t{};
+  const bool have = halClock.localTime(t);
+  char time[8] = "--:--";
+  if (have) {
+    const int h = SETTINGS.clockFormat == 1 ? (t.tm_hour % 12 == 0 ? 12 : t.tm_hour % 12) : t.tm_hour;
+    snprintf(time, sizeof(time), "%02d:%02d", h, t.tm_min);
+  }
+  const int big = deck::displayFont(76);
+  const int tw = renderer.getTextWidth(big, time);
+  renderer.drawText(big, (W - tw) / 2, 68 - deck::displayCapOffset(renderer, 76), time);
+  if (have) {
+    static constexpr const char* kDays[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+    static constexpr const char* kMonths[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                                              "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+    char date[48];
+    snprintf(date, sizeof(date), "%s %02d %s %04d%s \xc2\xb7 %s", kDays[t.tm_wday % 7], t.tm_mday,
+             kMonths[t.tm_mon % 12], t.tm_year + 1900,
+             SETTINGS.clockFormat == 1 ? (t.tm_hour < 12 ? " AM" : " PM") : "",
+             timezones::table()[timezones::activeIndex()].name);
+    const std::string d = deck::upper(date);
+    const int dw = deck::trackedWidth(renderer, SMALL_FONT_ID, d.c_str(), 3, true);
+    deck::drawTracked(renderer, SMALL_FONT_ID, (W - dw) / 2, 68 + deck::bigTitleCap(76) + 22, d.c_str(), 3, true, true);
+  }
+  // Last sync under the rows.
+  const char* last = SETTINGS.clockHasBeenSynced ? "LAST SYNC \xc2\xb7 DONE" : "LAST SYNC \xc2\xb7 NEVER";
+  deck::drawTracked(renderer, SMALL_FONT_ID, 28, kDeckRowsTop + ITEM_COUNT * 41 + 12, last, 2, true, true);
+}
+
+void ClockSettingsActivity::drawFooter() {
+  if (!deck::listsActive()) {
+    UiListActivity::drawFooter();
+    return;
+  }
+  const int sel = nav.selected;
+  const char* ok = sel == ITEM_TIMEZONE || sel == ITEM_SYNC ? "OPEN" : "CHANGE";
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), ok, tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+
+void ClockSettingsActivity::deckRowExtra(const int index, deck::Row& row) {
+  if (index == ITEM_SYNC) {
+    row.right.clear();
+    row.kind = deck::RowKind::Action;
+  } else if (!row.hasToggle) {
+    row.kind = deck::RowKind::Enum;
+  }
+}
+
 void ClockSettingsActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
-                                                static_cast<int16_t>(metrics.buttonHintsHeight), 0});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  if (deck::listsActive()) {
+    screen.setContentMarginFromScreen(fui::Insets{
+        kDeckRowsTop, 0, static_cast<int16_t>(renderer.getScreenHeight() - kDeckRowsTop - ITEM_COUNT * 41), 0});
+  } else {
+    screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
+                                                  static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  }
 
   // Every value is a flash/translation string or the member time buffer, so
   // the render pass allocates nothing.

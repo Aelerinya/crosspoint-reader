@@ -158,8 +158,8 @@ void drawFlashingScreen(const GfxRenderer& r, const int percent) {
 void drawSettingsPanel(const GfxRenderer& r) {
   const int W = r.getScreenWidth();
   // Black frame (top-right cut) around a white window holding the dial art.
-  poly(r, {{16, 50}, {W - 46, 50}, {W - 16, 80}, {W - 16, 390}, {16, 390}});
-  const int ix = 26, iy = 60, iw = W - 52, ih = 320;
+  poly(r, {{16, 51}, {W - 46, 51}, {W - 16, 81}, {W - 16, 351}, {16, 351}});
+  const int ix = 26, iy = 61, iw = W - 52, ih = 280;
   poly(r,
        {{ix, iy}, {ix + iw - 24, iy}, {ix + iw, iy + 24}, {ix + iw, iy + ih}, {ix + 24, iy + ih}, {ix, iy + ih - 24}},
        false);
@@ -169,7 +169,7 @@ void drawSettingsPanel(const GfxRenderer& r) {
   }
   const auto clip = r.getClipRect();
   const_cast<GfxRenderer&>(r).setClipRect(ix, iy, iw, ih);
-  drawSprite(r, kOpSettings, ix + 14, iy - 36);
+  drawSprite(r, kOpSettings, ix + 14, iy - 60);
   const_cast<GfxRenderer&>(r).setClipRect(clip[0], clip[1], clip[2], clip[3]);
 }
 

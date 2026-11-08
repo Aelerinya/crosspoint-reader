@@ -61,11 +61,31 @@ const char* kanaFor(const std::string& label) {
       {"TRANSFER", "転送"},
       {"HOTSPOT MODE", "転送"},
       {"SETTINGS", "設定"},
-      {"DISPLAY", "設定"},
-      {"READER", "設定"},
-      {"CONTROLS", "設定"},
-      {"SYSTEM", "設定"},
-      {"CONNECTIVITY", "設定"},
+      {"DISPLAY", "表示"},
+      {"READER", "読書"},
+      {"CONTROLS", "操作"},
+      {"SYSTEM", "システム"},
+      {"CONNECTIVITY", "接続"},
+      {"ABOUT", "情報"},
+      {"CLOCK", "時計"},
+      {"LANGUAGE", "言語"},
+      {"KEYBOARD", "鍵盤"},
+      {"KEYBOARDS", "鍵盤"},
+      {"TEXT", "文字"},
+      {"STATUS BAR", "状態"},
+      {"REMAP", "割当"},
+      {"WI-FI", "無線"},
+      {"NETWORKS", "無線"},
+      {"PASSWORD", "暗証"},
+      {"CALIBRE", "転送"},
+      {"SYNC", "同期"},
+      {"OPDS", "書店"},
+      {"CATALOGUES", "書店"},
+      {"FIRMWARE", "更新"},
+      {"SCANNING", "探索"},
+      {"CONNECTING", "接続中"},
+      {"CONNECTED", "接続"},
+      {"FAILED", "失敗"},
       {"SD CARD", "ファイル"},
       {"READ", "読書"},
       {"FILES", "ファイル"},
@@ -630,14 +650,30 @@ void DeckTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const c
       tri(cx - 4, cy - 7, cx - 4, cy + 7, cx + 5, cy);
       continue;
     }
-    const bool back = i == 0 && (up == "BACK" || up == "HOME" || up == "EXIT");
+    // "< TAB" / "TAB >": a triangle before / after the word (Deck screens' tab keys).
+    std::string text = up;
+    bool markLeft = i == 0 && (up == "BACK" || up == "HOME" || up == "EXIT" || up == "CANCEL");
+    bool markRight = false;
+    bool big = false;
+    if (text.rfind("< ", 0) == 0) {
+      text.erase(0, 2);
+      markLeft = big = true;
+    }
+    if (text.size() > 2 && text.compare(text.size() - 2, 2, " >") == 0) {
+      text.erase(text.size() - 2);
+      markRight = big = true;
+    }
     const int font = SMALL_FONT_ID;
-    const int markW = back ? 10 : 0;
-    const std::string t = renderer.truncatedText(font, up.c_str(), keyW - 14 - markW, EpdFontFamily::BOLD);
-    const int tw = deck::trackedWidth(renderer, font, t.c_str(), 1, true) + markW;
+    const int markW = big ? 14 : 10;
+    const int marks = (markLeft ? markW : 0) + (markRight ? markW : 0);
+    const std::string t = renderer.truncatedText(font, text.c_str(), keyW - 14 - marks, EpdFontFamily::BOLD);
+    const int tw = deck::trackedWidth(renderer, font, t.c_str(), 1, true) + marks;
     const int tx = kx + (keyW - tw) / 2;
-    if (back) tri(tx + 5, cy - 4, tx + 5, cy + 4, tx, cy);
-    deck::drawTracked(renderer, font, tx + markW, y + (kH - renderer.getLineHeight(font)) / 2, t.c_str(), 1, ink, true);
+    const int s = big ? 6 : 4;
+    if (markLeft) tri(tx + s + 1, cy - s, tx + s + 1, cy + s, tx, cy);
+    if (markRight) tri(tx + tw - s - 1, cy - s, tx + tw - s - 1, cy + s, tx + tw, cy);
+    deck::drawTracked(renderer, font, tx + (markLeft ? markW : 0), y + (kH - renderer.getLineHeight(font)) / 2,
+                      t.c_str(), 1, ink, true);
   }
   renderer.setOrientation(orig);
 }

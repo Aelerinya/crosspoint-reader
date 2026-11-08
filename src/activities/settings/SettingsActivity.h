@@ -184,7 +184,7 @@ struct SettingInfo {
 // The rows of one SettingsSection; activating a row toggles/cycles it, opens
 // its option popup, or launches its sub-screen.
 class SettingsActivity final : public UiListActivity {
-  const SettingsSection section;
+  SettingsSection section;
   std::vector<SettingInfo> settings;
 
   bool preserveQuickResumeTimeoutOn = false;
@@ -212,6 +212,11 @@ class SettingsActivity final : public UiListActivity {
   bool handleCustomInput() override;
   const char* headerTitle() const override;
   void drawFooter() override;
+  // Deck v2: small header + category strip; ◀ ▶ hop categories.
+  void drawChrome() override;
+  void deckListSpec(deck::ListSpec& spec) override;
+  void deckRowExtra(int index, deck::Row& row) override;
+  void switchSection(int delta);
 
  public:
   SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, SettingsSection section);

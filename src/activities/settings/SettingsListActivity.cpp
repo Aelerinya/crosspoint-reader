@@ -61,8 +61,8 @@ void SettingsListActivity::rebuildRows() {
 void SettingsListActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   if (deck::listsActive()) {
-    // Deck v2: rows under the illustration panel drawChrome paints (y 50..390).
-    screen.setContentMarginFromScreen(fui::Insets{402, 0, static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+    // Deck v2: rows under the illustration panel drawChrome paints (y 51..351).
+    screen.setContentMarginFromScreen(fui::Insets{367, 0, static_cast<int16_t>(metrics.buttonHintsHeight), 0});
   } else {
     // Content below the GUI.drawHeader band, above the button hints.
     screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
@@ -108,6 +108,20 @@ void SettingsListActivity::openSection(const SettingsSection section) {
 }
 
 void SettingsListActivity::onBackButton() { onGoHome(); }
+
+void SettingsListActivity::deckRowExtra(const int index, deck::Row& row) {
+  static constexpr const char* kKana[SETTINGS_SECTION_COUNT] = {"システム", "表示", "読書", "操作", "書庫", "接続"};
+  if (index >= 0 && index < static_cast<int>(SETTINGS_SECTION_COUNT)) row.kana = kKana[index];
+}
+
+void SettingsListActivity::drawFooter() {
+  if (!deck::listsActive()) {
+    UiListActivity::drawFooter();
+    return;
+  }
+  const auto labels = mappedInput.mapLabels(tr(STR_HOME), "OPEN", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
 
 void SettingsListActivity::drawChrome() {
   if (deck::listsActive()) {

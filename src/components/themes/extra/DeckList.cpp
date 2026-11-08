@@ -6,6 +6,7 @@
 #include <HalStorage.h>
 
 #include <algorithm>
+#include <cstring>
 
 #include "CrossPointSettings.h"
 #include "DeckTheme.h"
@@ -15,6 +16,8 @@
 namespace deck {
 
 bool listsActive() { return SETTINGS.uiTheme == CrossPointSettings::DECK && !gpio.hasTouch(); }
+
+int nativeFont() { return 0x0DEC0A71; }
 
 namespace {
 
@@ -40,10 +43,60 @@ void toggleBox(const GfxRenderer& r, const int x, const int cy, const bool on, c
   if (on) r.fillRect(x + 4, cy - s / 2 + 4, s - 8, s - 8, black);
 }
 
+// Small right/left pointing triangles (the trimmed fonts have no ◂ ▸).
+void arrowRight(const GfxRenderer& r, const int x, const int cy, const bool black, const int s = 4) {
+  const int xs[] = {x, x + s + 1, x};
+  const int ys[] = {cy - s, cy, cy + s};
+  r.fillPolygon(xs, ys, 3, black);
+}
+
+void arrowLeft(const GfxRenderer& r, const int x, const int cy, const bool black, const int s = 4) {
+  const int xs[] = {x + s + 1, x, x + s + 1};
+  const int ys[] = {cy - s, cy, cy + s};
+  r.fillPolygon(xs, ys, 3, black);
+}
+
+// Slanted checkbox (Pick lists): outlined, filled when on.
+void slantCheck(const GfxRenderer& r, const int right, const int cy, const bool on, const bool black) {
+  const int w = 22, h = 16;
+  if (on) {
+    fillSlant(r, right - w, cy - h / 2, w, h, black);
+  } else {
+    drawSlant(r, right - w, cy - h / 2, w, h, 2, black);
+  }
+}
+
+// Truncates with an ellipsis so the tracked width fits `maxW`.
+std::string fitTracked(const GfxRenderer& r, const int font, const std::string& text, const int maxW,
+                       const int tracking) {
+  if (trackedWidth(r, font, text.c_str(), tracking, true) <= maxW) return text;
+  std::string t = text;
+  while (!t.empty()) {
+    do t.pop_back();
+    while (!t.empty() && (static_cast<unsigned char>(t.back()) & 0xC0) == 0x80);
+    while (!t.empty() && t.back() == ' ') t.pop_back();
+    const std::string c = t + "...";
+    if (trackedWidth(r, font, c.c_str(), tracking, true) <= maxW) return c;
+  }
+  return t;
+}
+
+// " (DECK)" marks Deck-only options in the shared lists; the Deck screens drop it.
+void stripDeckSuffix(std::string& label) {
+  for (const char* suffix : {" (DECK)", " (Deck)"}) {
+    const size_t n = strlen(suffix);
+    if (label.size() > n && label.compare(label.size() - n, n, suffix) == 0) label.erase(label.size() - n);
+  }
+}
+
 int rowHeight(const GfxRenderer& r, const ListStyle style, const bool cardKicker) {
   switch (style) {
     case ListStyle::Rows:
-      return r.getLineHeight(UI_12_FONT_ID) + 20;
+      return 41;
+    case ListStyle::Categories:
+      return 56;
+    case ListStyle::Pick:
+      return 47;
     case ListStyle::Menu:
       return 30;
     case ListStyle::Display:
@@ -91,14 +144,22 @@ void settleTop(int& top, const int sel, const int visible, const int count) {
   top = std::clamp(top, 0, std::max(0, count - visible));
 }
 
-int rowGap(const ListStyle style) { return style == ListStyle::Cards ? 10 : (style == ListStyle::Menu ? 2 : 0); }
+int rowGap(const ListStyle style) {
+  if (style == ListStyle::Cards) return 10;
+  if (style == ListStyle::Categories) return 7;
+  return style == ListStyle::Menu ? 2 : 0;
+}
+
+int specRowHeight(const GfxRenderer& r, const ListSpec& spec, const bool cardKicker) {
+  return spec.rowHeight > 0 ? spec.rowHeight : rowHeight(r, spec.style, cardKicker);
+}
 
 // Height of the tab bar, kicker line and top rule above the rows.
 int headerHeight(const GfxRenderer& r, const ListSpec& spec) {
   int h = 0;
   if (spec.tabCount > 0) h += r.getLineHeight(SMALL_FONT_ID) + 10 + 16;
   if (!spec.kicker.empty()) h += r.getLineHeight(SMALL_FONT_ID) + 10;
-  if (spec.style == ListStyle::Rows || spec.style == ListStyle::Display || spec.style == ListStyle::Books) h += 2;
+  if (spec.style == ListStyle::Display || spec.style == ListStyle::Books) h += 2;
   return h;
 }
 
@@ -106,12 +167,58 @@ int headerHeight(const GfxRenderer& r, const ListSpec& spec) {
 
 void drawTabBar(const GfxRenderer& r, const int x, const int y, const ListSpec& spec) { drawTabs(r, x, y, spec); }
 
+int drawToggle(const GfxRenderer& r, const int right, const int cy, const bool on, const bool black) {
+  constexpr int kW = 38, kH = 17, kGap = 1;
+  const int font = SMALL_FONT_ID;
+  const int x0 = right - 2 * kW - kGap;
+  const int y = cy - kH / 2;
+  const char* labels[] = {"OFF", "ON"};
+  for (int i = 0; i < 2; ++i) {
+    const int hx = x0 + i * (kW + kGap);
+    const bool active = (i == 1) == on;
+    if (active) {
+      fillSlant(r, hx, y, kW, kH, black);
+    } else {
+      fillSlant(r, hx, y, kW, kH, black);
+      // 1 px outline: inner parallelogram in the background colour.
+      const int xs[] = {hx + 6, hx + kW - 2, hx + kW - 6, hx + 2};
+      const int ys[] = {y + 1, y + 1, y + kH - 2, y + kH - 2};
+      r.fillPolygon(xs, ys, 4, !black);
+    }
+    const int tw = trackedWidth(r, font, labels[i], 0, true);
+    drawTracked(r, font, hx + (kW - tw) / 2 + 1, cy - r.getLineHeight(font) / 2, labels[i], 0, active ? !black : black,
+                true);
+  }
+  return 2 * kW + kGap;
+}
+
+int drawCategoryStrip(const GfxRenderer& r, const int y, const char* const* labels, const int count, const int active) {
+  constexpr int kH = 38, kTabH = 20;
+  const int W = r.getScreenWidth();
+  r.fillRect(16, y, W - 32, kH, true);
+  const int font = SMALL_FONT_ID;
+  const int ty = y + (kH - kTabH) / 2;
+  int tx = 24;
+  for (int i = 0; i < count; ++i) {
+    const char* label = labels[i] ? labels[i] : "";
+    const int w = trackedWidth(r, font, label, 2, true) + 30;
+    if (i == active) {
+      fillSlant(r, tx, ty, w, kTabH, false);
+    } else {
+      drawSlant(r, tx, ty, w, kTabH, 1, false);
+    }
+    drawTracked(r, font, tx + 15, ty + (kTabH - r.getLineHeight(font)) / 2, label, 2, i == active, true);
+    tx += w + 4;
+  }
+  return kH;
+}
+
 int tabBarHeight(const GfxRenderer& r) { return r.getLineHeight(SMALL_FONT_ID) + 10 + 22; }
 
 int listViewport(const GfxRenderer& r, const Rect area, const ListSpec& spec, const int count, const int selected,
                  int& top) {
   const bool cardKicker = spec.style == ListStyle::Cards && spec.subtitles;
-  const int rowH = rowHeight(r, spec.style, cardKicker);
+  const int rowH = specRowHeight(r, spec, cardKicker);
   const int visible = fitRows(area.height - headerHeight(r, spec), rowH, rowGap(spec.style));
   settleTop(top, std::clamp(selected, -1, count - 1), visible, count);
   return visible;
@@ -148,7 +255,7 @@ int drawList(const GfxRenderer& r, const Rect area, const ListSpec& spec, const 
     y += lh + 10;
   }
 
-  if (spec.style == ListStyle::Rows || spec.style == ListStyle::Display || spec.style == ListStyle::Books) {
+  if (spec.style == ListStyle::Display || spec.style == ListStyle::Books) {
     r.fillRect(x, y, w, 2, true);
     y += 2;
   }
@@ -162,7 +269,7 @@ int drawList(const GfxRenderer& r, const Rect area, const ListSpec& spec, const 
   // Cards carry a kicker line when the screen shows subtitles.
   const bool cardKicker = spec.style == ListStyle::Cards && spec.subtitles;
   const int gap = rowGap(spec.style);
-  const int rowH = rowHeight(r, spec.style, cardKicker);
+  const int rowH = specRowHeight(r, spec, cardKicker);
   int bottom = area.y + area.height;
   const int visible = fitRows(bottom - y, rowH, gap);
   const int sel = std::clamp(selected, -1, count - 1);
@@ -191,10 +298,19 @@ int drawList(const GfxRenderer& r, const Rect area, const ListSpec& spec, const 
     }
     const size_t lead = row.label.find_first_not_of(' ');
     if (lead != std::string::npos && lead > 0) row.label.erase(0, lead);
-    if (spec.upperLabels) row.label = upper(row.label);
+    if (spec.upperLabels && !spec.nativeLabels) row.label = upper(row.label);
+    stripDeckSuffix(row.label);
     const int ry = y + i * (rowH + gap);
     const bool on = index == sel && !row.isHeader;
     const bool ink = !on;  // text colour: black normally, white on the inverted selection
+    if (row.isHeader && spec.style == ListStyle::Rows) {
+      // "// ACCOUNT" over a 2 px rule.
+      const int font = SMALL_FONT_ID;
+      const std::string h = r.truncatedText(font, upper(row.label).c_str(), w - 20, EpdFontFamily::BOLD);
+      drawTracked(r, font, x, ry + rowH - r.getLineHeight(font) - 6, ("// " + h).c_str(), 2, true, true);
+      r.fillRect(x, ry + rowH - 2, w, 2, true);
+      continue;
+    }
     if (row.isHeader) {
       const int font = SMALL_FONT_ID;
       const std::string h = r.truncatedText(font, upper(row.label).c_str(), w - 20, EpdFontFamily::BOLD);
@@ -204,22 +320,93 @@ int drawList(const GfxRenderer& r, const Rect area, const ListSpec& spec, const 
     }
     switch (spec.style) {
       case ListStyle::Rows: {
+        // v2: 41 px rows, tracked label; toggle pair, "◂ VALUE ▸" on the selected enum, ▸ for actions.
         if (on) r.fillRect(x, ry, w, rowH, true);
-        const int font = UI_12_FONT_ID;
-        const int ty = ry + (rowH - r.getLineHeight(font)) / 2;
+        const int cy = ry + rowH / 2;
+        const int right = x + w - 12;
+        const int vf = SMALL_FONT_ID;
         int rightW = 0;
         if (row.hasToggle) {
-          rightW = 16;
-          toggleBox(r, x + w - 12 - 16, ry + rowH / 2, row.toggleOn, ink);
+          rightW = drawToggle(r, right, cy, row.toggleOn, ink);
+        } else if (row.kind == RowKind::Action && row.right.empty()) {
+          arrowRight(r, right - 5, cy, ink);
+          rightW = 10;
         } else if (!row.right.empty()) {
-          const std::string v = r.truncatedText(UI_10_FONT_ID, upper(row.right).c_str(), w / 2, EpdFontFamily::BOLD);
-          rightW = trackedWidth(r, UI_10_FONT_ID, v.c_str(), 1, true);
-          drawTracked(r, UI_10_FONT_ID, x + w - 12 - rightW, ry + (rowH - r.getLineHeight(UI_10_FONT_ID)) / 2,
-                      v.c_str(), 1, ink, true);
+          const bool arrows = on && row.kind == RowKind::Enum;
+          const std::string v = fitTracked(r, vf, upper(row.right), w / 2, 2);
+          const int vw = trackedWidth(r, vf, v.c_str(), 2, true);
+          const int vx = right - vw - (arrows ? 14 : 0);
+          drawTracked(r, vf, vx, cy - r.getLineHeight(vf) / 2, v.c_str(), 2, ink, true);
+          if (arrows) {
+            arrowLeft(r, vx - 14, cy, ink);
+            arrowRight(r, right - 5, cy, ink);
+          }
+          if (row.kind == RowKind::Action) {
+            arrowRight(r, right - 5, cy, ink);
+          }
+          rightW = vw + (arrows ? 28 : 0);
         }
-        const std::string l = r.truncatedText(font, row.label.c_str(), w - 24 - rightW - 12, EpdFontFamily::BOLD);
-        drawTracked(r, font, x + 12, ty, l.c_str(), 1, ink, true);
+        const int font = UI_10_FONT_ID;
+        const std::string l = fitTracked(r, font, row.label, w - 24 - rightW - 14, 2);
+        drawTracked(r, font, x + 12, cy - r.getLineHeight(font) / 2, l.c_str(), 2, row.dimmed ? true : ink, true);
         if (!on) dashedLine(r, x, ry + rowH - 1, w);
+        break;
+      }
+      case ListStyle::Categories: {
+        // Chamfered rows, display-face label, kana tag on the right; the selected one filled with ▶.
+        if (on) {
+          fillChamfer(r, x, ry, w, rowH, 14, true);
+          const int cy = ry + rowH / 2;
+          const int xs[] = {x + 18, x + 30, x + 18};
+          const int ys[] = {cy - 7, cy, cy + 7};
+          r.fillPolygon(xs, ys, 3, false);
+        } else {
+          drawChamfer(r, x, ry, w, rowH, 14, 2);
+        }
+        const int cap = 13 * 150 * 70 / 7200;
+        int kw = 0;
+        if (row.kana) {
+          kw = r.getTextWidth(kanaFont(), row.kana);
+          r.drawText(kanaFont(), x + w - 16 - kw, ry + (rowH - r.getLineHeight(kanaFont())) / 2, row.kana, ink);
+        }
+        const int font = displayFont(13);
+        const std::string l = r.truncatedText(font, row.label.c_str(), w - 42 - kw - 24);
+        r.drawText(font, x + 42, ry + (rowH - cap) / 2 - displayCapOffset(r, 13), l.c_str(), ink);
+        break;
+      }
+      case ListStyle::Pick: {
+        // Single choice: ◆ current, ▶ focus in a marker column. Multi (Check rows): slanted boxes on the right.
+        if (on) r.fillRect(x, ry, w, rowH, true);
+        if (!on) dashedLine(r, x, ry + rowH - 1, w);
+        const int cy = ry + rowH / 2;
+        const bool multi = row.kind == RowKind::Check;
+        int lx = x + 12;
+        if (!multi) {
+          if (on) {
+            const int xs[] = {x + 14, x + 25, x + 14};
+            const int ys[] = {cy - 6, cy, cy + 6};
+            r.fillPolygon(xs, ys, 3, false);
+          } else if (row.marked) {
+            diamondMark(r, x + 19, cy, 6, true);
+          }
+          lx = x + 42;
+        }
+        const int right = x + w - 12;
+        int rightW = 0;
+        if (multi) {
+          slantCheck(r, right, cy, row.toggleOn, ink);
+          rightW = 30;
+        }
+        if (!row.right.empty()) {
+          const std::string v = upper(row.right);
+          const int vw = trackedWidth(r, SMALL_FONT_ID, v.c_str(), 2, true);
+          drawTracked(r, SMALL_FONT_ID, right - rightW - vw, cy - r.getLineHeight(SMALL_FONT_ID) / 2, v.c_str(), 2, ink,
+                      true);
+          rightW += vw + 12;
+        }
+        const int font = spec.nativeLabels ? nativeFont() : UI_12_FONT_ID;
+        const std::string l = r.truncatedText(font, row.label.c_str(), right - rightW - lx - 8, EpdFontFamily::BOLD);
+        r.drawText(font, lx, cy - r.getLineHeight(font) / 2, l.c_str(), ink, EpdFontFamily::BOLD);
         break;
       }
       case ListStyle::Menu: {
@@ -305,6 +492,14 @@ int drawList(const GfxRenderer& r, const Rect area, const ListSpec& spec, const 
         const int font = displayFont(13);
         const int cap = 13 * 150 * 70 / 7200;
         const std::string name = r.truncatedText(font, row.label.c_str(), x + w - tx - rightW - 16);
+        if (!row.kicker.empty()) {
+          // Name over a small detail line (firmware picker: size).
+          const int lh = r.getLineHeight(SMALL_FONT_ID);
+          const int top = cy - (cap + 4 + lh) / 2;
+          r.drawText(font, tx, top - displayCapOffset(r, 13), name.c_str(), ink);
+          drawTracked(r, SMALL_FONT_ID, tx, top + cap + 4, upper(row.kicker).c_str(), 2, ink, true);
+          break;
+        }
         r.drawText(font, tx, cy - cap / 2 - displayCapOffset(r, 13), name.c_str(), ink);
         break;
       }

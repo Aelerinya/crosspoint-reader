@@ -38,7 +38,9 @@
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
+#include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
+#include "images/DeckOperator.h"
 #include "util/PluginEvents.h"
 
 namespace fui = freeink::ui;
@@ -208,7 +210,60 @@ void SettingsActivity::applyUiSettingChange(uint8_t CrossPointSettings::* valueP
 }
 
 bool SettingsActivity::handleCustomInput() {
-  return optionPopup.handleInput(mappedInput, [this] { requestUpdate(); });
+  if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return true;
+  if (deck::listsActive() && !optionPopup.isActive()) {
+    if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+      switchSection(-1);
+      return true;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+      switchSection(1);
+      return true;
+    }
+    // Front ◀ ▶ belong to the strip: rows move with the side buttons only.
+    if (mappedInput.isPressed(MappedInputManager::Button::Left) ||
+        mappedInput.isPressed(MappedInputManager::Button::Right)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+namespace {
+constexpr const char* kDeckTabs[SETTINGS_SECTION_COUNT] = {"SYS", "DISP", "READ", "CTRL", "LIB", "NET"};
+}  // namespace
+
+void SettingsActivity::switchSection(const int delta) {
+  const int n = static_cast<int>(SETTINGS_SECTION_COUNT);
+  section = static_cast<SettingsSection>((static_cast<int>(section) + delta + n) % n);
+  rebuildSettings();
+  nav.selected = 0;
+  nav.top = 0;
+  requestUpdate();
+}
+
+void SettingsActivity::drawChrome() {
+  if (!deck::listsActive()) {
+    UiListActivity::drawChrome();
+    return;
+  }
+  deck::drawSmallHeader(renderer, headerTitle());
+  deck::drawCategoryStrip(renderer, 53, kDeckTabs, static_cast<int>(SETTINGS_SECTION_COUNT), static_cast<int>(section));
+}
+
+void SettingsActivity::deckListSpec(deck::ListSpec& spec) {
+  spec.style = deck::ListStyle::Rows;
+  if (section == SettingsSection::Controls && deck::companionOn()) spec.fox = &kOpPressS;
+}
+
+void SettingsActivity::deckRowExtra(const int index, deck::Row& row) {
+  if (index < 0 || index >= static_cast<int>(settings.size())) return;
+  const auto& setting = settings[index];
+  if (setting.type == SettingType::ACTION) {
+    row.kind = deck::RowKind::Action;
+  } else if (!row.hasToggle) {
+    row.kind = deck::RowKind::Enum;
+  }
 }
 
 void SettingsActivity::toggleSelectedSetting() {
@@ -501,10 +556,15 @@ std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
 
 void SettingsActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  // Content below the GUI.drawHeader band, above the button hints.
-  screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
-                                                static_cast<int16_t>(metrics.buttonHintsHeight), 0});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  if (deck::listsActive()) {
+    // Rows under the category strip drawChrome paints (y 53..91).
+    screen.setContentMarginFromScreen(fui::Insets{97, 0, static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  } else {
+    // Content below the GUI.drawHeader band, above the button hints.
+    screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
+                                                  static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  }
 
   // rowItems_ (label/actionValue) was built by rebuildRowItems(); only the
   // live value text needs refreshing here, by assigning into the existing
@@ -544,6 +604,13 @@ void SettingsActivity::drawFooter() {
   const bool picker =
       selected >= 0 && selected < static_cast<int>(settings.size()) &&
       (settings[selected].type == SettingType::ACTION || settings[selected].nameId == StrId::STR_TIME_TO_SLEEP);
+  if (deck::listsActive()) {
+    const bool action =
+        selected >= 0 && selected < static_cast<int>(settings.size()) && settings[selected].type == SettingType::ACTION;
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), action ? "OPEN" : "CHANGE", "< TAB", "TAB >");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    return;
+  }
   const auto labels =
       mappedInput.mapLabels(tr(STR_BACK), picker ? tr(STR_SELECT) : tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

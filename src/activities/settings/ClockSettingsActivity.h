@@ -17,6 +17,10 @@ class ClockSettingsActivity final : public UiListActivity {
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int index) override;
   const char* headerTitle() const override;
+  void drawChrome() override;
+  void drawFooter() override;
+  void deckListSpec(deck::ListSpec& spec) override { spec.style = deck::ListStyle::Rows; }
+  void deckRowExtra(int index, deck::Row& row) override;
 
   // Row values are flash/translation strings assigned directly into rowItems_;
   // the one formatted value (the sync row's live time) lives here so its

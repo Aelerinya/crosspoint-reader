@@ -19,6 +19,12 @@ class AboutActivity final : public UiListActivity {
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int) override {}
   const char* headerTitle() const override;
+  // Deck v2 spec sheet, drawn whole (no list).
+  void drawChrome() override;
+  void drawFooter() override;
+  uint64_t sdTotal_ = 0;
+  uint64_t sdUsed_ = 0;
+  bool sdUsedKnown_ = false;
 
   std::string rowValues_[ITEM_COUNT];
   freeink::ui::ListItem rowItems_[ITEM_COUNT]{};

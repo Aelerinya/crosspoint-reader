@@ -17,6 +17,7 @@
 #include "SdCardFontSystem.h"
 #include "TextSettingsPreview.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -78,6 +79,11 @@ void TextSettingsActivity::onEnter() {
   afterHeader = safeArea.y + metrics_.topPadding + metrics_.headerHeight + metrics_.verticalSpacing;
   const int usableHeight = safeBottom - afterHeader - metrics_.verticalSpacing;
   previewHeight = usableHeight * metrics_.previewHeightPercent / 100;
+  if (deck::listsActive()) {
+    // Deck v2: framed preview y 53..301, tabs from 330.
+    afterHeader = 53;
+    previewHeight = 248;
+  }
 
   fonts_.clear();
   fonts_.reserve(CrossPointSettings::BUILTIN_FONT_COUNT + (registry_ ? registry_->getFamilyCount() : 0));
@@ -183,7 +189,23 @@ void TextSettingsActivity::activateIndex(const int index) {
 }
 
 bool TextSettingsActivity::handleCustomInput() {
-  return optionPopup_.handleInput(mappedInput, [this] { requestUpdate(); });
+  if (optionPopup_.handleInput(mappedInput, [this] { requestUpdate(); })) return true;
+  if (deck::listsActive() && !optionPopup_.isActive()) {
+    // Deck: front ◀ ▶ switch tabs, the side buttons move through the rows.
+    if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+      switchTab(-1);
+      return true;
+    }
+    if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+      switchTab(1);
+      return true;
+    }
+    if (mappedInput.isPressed(MappedInputManager::Button::Left) ||
+        mappedInput.isPressed(MappedInputManager::Button::Right)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool TextSettingsActivity::handleButtons() {
@@ -206,7 +228,7 @@ bool TextSettingsActivity::handleButtons() {
 
 void TextSettingsActivity::buildScreen(UiScreen& screen) {
   const Rect safeArea = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  const int tabTop = afterHeader + previewHeight;
+  const int tabTop = deck::listsActive() ? 324 : afterHeader + previewHeight;
   const int rightInset = renderer.getScreenWidth() - (safeArea.x + safeArea.width);
   const int bottomInset = renderer.getScreenHeight() - (safeArea.y + safeArea.height);
   screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(tabTop), static_cast<int16_t>(rightInset),
@@ -271,7 +293,58 @@ const char* TextSettingsActivity::confirmLabelText() const {
   }
 }
 
+void TextSettingsActivity::deckListSpec(deck::ListSpec& spec) {
+  if (tab_ == Tab::Family || tab_ == Tab::Size) {
+    spec.style = deck::ListStyle::Pick;
+    spec.nativeLabels = true;
+    spec.markedIndex = tab_ == Tab::Family ? currentFamilyIndex_ : currentSizeIndex_;
+  } else {
+    spec.style = deck::ListStyle::Rows;
+  }
+}
+
+void TextSettingsActivity::deckRowExtra(const int index, deck::Row& row) {
+  if (tab_ == Tab::Family) {
+    const bool builtin = index >= 0 && index < static_cast<int>(fonts_.size()) && fonts_[index].isBuiltin;
+    row.right = builtin ? "BUILT-IN" : "SD CARD";
+  } else if (tab_ == Tab::Size) {
+    row.right.clear();
+  } else if (!row.hasToggle) {
+    row.kind = deck::RowKind::Enum;
+  }
+}
+
 void TextSettingsActivity::drawChrome() {
+  if (deck::listsActive()) {
+    const int W = renderer.getScreenWidth();
+    deck::drawSmallHeader(renderer, "TEXT");
+    renderer.drawRect(16, afterHeader, W - 32, previewHeight, 3, true);
+    const Rect inner{19, afterHeader + 3, W - 38, previewHeight - 6};
+    const auto [savedX, savedY, savedWidth, savedHeight] = renderer.getClipRect();
+    renderer.setClipRect(inner.x, inner.y, inner.width, inner.height);
+    textsettings::renderPreview(renderer, previewLayout_, metrics_.previewPadding, metrics_.verticalSpacing, inner, "");
+    renderer.setClipRect(savedX, savedY, savedWidth, savedHeight);
+    // Caption tag on the frame's bottom-right edge: family · size · alignment.
+    std::string cap;
+    if (currentFamilyIndex_ >= 0 && currentFamilyIndex_ < static_cast<int>(fonts_.size())) {
+      cap = fonts_[currentFamilyIndex_].name;
+    }
+    if (currentSizeIndex_ >= 0 && currentSizeIndex_ < static_cast<int>(sizes_.size())) {
+      cap += " \xc2\xb7 " + sizes_[currentSizeIndex_].name;
+    }
+    cap += " \xc2\xb7 " + layoutValueText(static_cast<int>(LayoutRow::Alignment));
+    cap = deck::upper(cap);
+    const int font = SMALL_FONT_ID;
+    cap = renderer.truncatedText(font, cap.c_str(), W - 80, EpdFontFamily::BOLD);
+    const int tw = deck::trackedWidth(renderer, font, cap.c_str(), 2, true);
+    const int th = renderer.getLineHeight(font) + 8;
+    const int ty = afterHeader + previewHeight - th + 10;
+    const int xs[] = {W - 16 - tw - 26, W - 16, W - 16, W - 16 - tw - 26 - 8};
+    const int ys[] = {ty, ty, ty + th, ty + th};
+    renderer.fillPolygon(xs, ys, 4, true);
+    deck::drawTracked(renderer, font, W - 16 - tw - 10, ty + 4, cap.c_str(), 2, false, true);
+    return;
+  }
   GUI.drawHeader(renderer, UITheme::getInstance().getHeaderRect(renderer, true, false), tr(STR_TEXT_SETTINGS));
 
   const char* familyName = (currentFamilyIndex_ >= 0 && currentFamilyIndex_ < static_cast<int>(fonts_.size()))
@@ -296,6 +369,12 @@ void TextSettingsActivity::drawChrome() {
 }
 
 void TextSettingsActivity::drawFooter() {
+  if (deck::listsActive()) {
+    const auto labels =
+        mappedInput.mapLabels(tr(STR_BACK), ringPos() == 0 ? "NEXT TAB" : confirmLabelText(), "< TAB", "TAB >");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    return;
+  }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabelText(), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }

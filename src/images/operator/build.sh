@@ -19,4 +19,11 @@ python3 ../../../scripts/convert_sprites.py ../DeckOperator.h \
   kOpWakeB=scenes/wakeB.png:480x800 \
   kOpWakeC=scenes/wakeC.png:480x800 \
   kOpOpen=poses/wakeA.png:x400 \
-  kOpNet=poses/usb.png:x260
+  kOpNet=poses/usb.png:x260 \
+  kOpPressS=poses/press.png:x175 \
+  kOpPressL=poses/press.png:x262 \
+  kOpScan=poses/scan.png:x430 \
+  kOpScanS=poses/scan.png:x250 \
+  kOpFail=poses/fail.png:x440 \
+  kOpLens=poses/lens.png:x222 \
+  kOpTorch=poses/flash.png:x280

@@ -10,6 +10,8 @@
 #include "I18nKeys.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckScreens.h"
+#include "components/themes/extra/DeckTheme.h"
 
 namespace fui = freeink::ui;
 
@@ -62,8 +64,50 @@ void LanguageSelectActivity::activateIndex(const int index) {
   finish();
 }
 
+void LanguageSelectActivity::drawChrome() {
+  if (!deck::listsActive()) {
+    UiListActivity::drawChrome();
+    return;
+  }
+  deck::drawSmallHeader(renderer, "LANGUAGE");
+  deck::drawBigTitle(renderer, 53, "LANGUAGE", "言語");
+  deck::drawTitleRule(renderer, 113);
+}
+
+void LanguageSelectActivity::drawFooter() {
+  if (!deck::listsActive()) {
+    UiListActivity::drawFooter();
+    return;
+  }
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), "SET", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+
+void LanguageSelectActivity::deckListSpec(deck::ListSpec& spec) {
+  spec.style = deck::ListStyle::Pick;
+  spec.nativeLabels = true;
+}
+
+void LanguageSelectActivity::deckRowExtra(const int index, deck::Row& row) {
+  if (index < 0 || index >= totalItems) return;
+  const uint8_t lang = SORTED_LANGUAGE_INDICES[index];
+  row.marked = lang == static_cast<uint8_t>(I18N.getLanguage());
+  row.right = deck::englishLanguageName(lang);
+}
+
 void LanguageSelectActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
+  if (deck::listsActive()) {
+    screen.setContentMarginFromScreen(fui::Insets{116, 0, static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+    fui::ListProps props;
+    props.items = rowItems;
+    props.count = static_cast<uint16_t>(totalItems);
+    props.action = ACTION_ROW;
+    props.inputMask = fui::InputTouch;
+    syncListViewport(screen, props);
+    screen.list(props);
+    return;
+  }
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   // Content: the safe area minus the header band GUI.drawHeader paints.
   screen.setContentMarginFromScreen(fui::Insets{

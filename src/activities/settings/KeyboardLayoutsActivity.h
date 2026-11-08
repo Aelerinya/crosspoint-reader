@@ -20,6 +20,13 @@ class KeyboardLayoutsActivity final : public UiListActivity {
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int index) override;
   const char* headerTitle() const override;
+  void drawChrome() override;
+  void drawFooter() override;
+  void deckListSpec(deck::ListSpec& spec) override {
+    spec.style = deck::ListStyle::Pick;
+    spec.nativeLabels = true;
+  }
+  void deckRowExtra(int index, deck::Row& row) override;
 
   bool isLocked(uint8_t i) const;
 

@@ -13,6 +13,10 @@
 #include "MappedInputManager.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckScreens.h"
+#include "components/themes/extra/DeckTheme.h"
+#include "fontIds.h"
 
 namespace fui = freeink::ui;
 
@@ -156,13 +160,7 @@ void KOReaderSettingsActivity::activateIndex(const int index) {
   }
 }
 
-void KOReaderSettingsActivity::buildScreen(UiScreen& screen) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  // Content below the GUI.drawHeader band, above the button hints.
-  screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
-                                                static_cast<int16_t>(metrics.buttonHintsHeight), 0});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
-
+void KOReaderSettingsActivity::refreshRowValues() {
   // rowItems_'s labels/actionValue were set once in the constructor; only the
   // live value text needs refreshing here, by assigning into the existing
   // rowValues_ strings (no array growth) rather than building a new
@@ -205,6 +203,96 @@ void KOReaderSettingsActivity::buildScreen(UiScreen& screen) {
   }
   GUI.setCheckboxRow(rowItems_[IDX_SEND_METADATA], KOREADER_STORE.getSendMetadata());
   GUI.setCheckboxRow(rowItems_[IDX_SYNC_CLIPPINGS], KOREADER_STORE.getSyncClippings());
+}
+
+void KOReaderSettingsActivity::drawChrome() {
+  if (!deck::listsActive()) {
+    UiListActivity::drawChrome();
+    return;
+  }
+  refreshRowValues();
+  const GfxRenderer& r = renderer;
+  const int W = r.getScreenWidth();
+  const int small = SMALL_FONT_ID;
+  deck::drawSmallHeader(r, "SYNC");
+  deck::drawBigTitle(r, 53, "SYNC", "同期");
+  const int sel = nav.selected;
+  struct Group {
+    const char* title;
+    int first, count;
+  };
+  static constexpr Group kGroups[] = {
+      {"// ACCOUNT", IDX_USERNAME, 2}, {"// SERVER", IDX_SERVER_URL, 4}, {"// BEHAVIOUR", IDX_MATCH_METHOD, 4}};
+  int y = 112;
+  deck::ListSpec spec;
+  spec.style = deck::ListStyle::Rows;
+  for (const auto& g : kGroups) {
+    deck::drawTracked(r, small, 16, y, g.title, 2, true, true);
+    r.fillRect(16, y + r.getLineHeight(small) + 3, W - 32, 2, true);
+    y += r.getLineHeight(small) + 6;
+    int top = 0;
+    deck::drawList(r, Rect{16, y, W - 32, g.count * 41}, spec, g.count, sel - g.first, top,
+                   [&](const int i, deck::Row& row) {
+                     const auto& item = rowItems_[g.first + i];
+                     row.label = item.label ? item.label : "";
+                     row.right = item.value ? item.value : "";
+                     row.hasToggle = item.toggle;
+                     row.toggleOn = item.toggleChecked;
+                     row.kind = deck::RowKind::Enum;
+                     return true;
+                   });
+    y += g.count * 41 + 8;
+  }
+  // SIGN UP / AUTHENTICATE: outlined buttons, dashed until credentials exist.
+  const bool creds = KOREADER_STORE.hasCredentials();
+  const int bw = (W - 32 - 10) / 2, bh = 38;
+  y += 6;
+  for (int i = 0; i < 2; ++i) {
+    const int idx = i == 0 ? IDX_SIGN_UP : IDX_AUTHENTICATE;
+    const int bx = 16 + i * (bw + 10);
+    const bool on = sel == idx;
+    if (on) {
+      deck::fillChamfer(r, bx, y, bw, bh, 10, true);
+    } else if (creds) {
+      deck::drawChamfer(r, bx, y, bw, bh, 10, 2);
+    } else {
+      for (int x = bx; x < bx + bw; x += 6) {
+        r.fillRect(x, y, 3, 1, true);
+        r.fillRect(x, y + bh - 1, 3, 1, true);
+      }
+      for (int yy = y; yy < y + bh; yy += 6) {
+        r.fillRect(bx, yy, 1, 3, true);
+        r.fillRect(bx + bw - 1, yy, 1, 3, true);
+      }
+    }
+    const std::string label = deck::upper(rowItems_[idx].label ? rowItems_[idx].label : "");
+    const int lw = deck::trackedWidth(r, UI_10_FONT_ID, label.c_str(), 2, true);
+    deck::drawTracked(r, UI_10_FONT_ID, bx + (bw - lw) / 2, y + (bh - r.getLineHeight(UI_10_FONT_ID)) / 2,
+                      label.c_str(), 2, !on, true);
+  }
+  if (!creds) {
+    deck::drawTracked(r, small, 16, y + bh + 14, deck::upper(tr(STR_SET_CREDENTIALS_FIRST)).c_str(), 2, true, true);
+  }
+}
+
+void KOReaderSettingsActivity::drawFooter() {
+  if (!deck::listsActive()) {
+    UiListActivity::drawFooter();
+    return;
+  }
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), "EDIT", tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+
+void KOReaderSettingsActivity::buildScreen(UiScreen& screen) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  // Content below the GUI.drawHeader band, above the button hints.
+  screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
+                                                static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+
+  refreshRowValues();
+  if (deck::listsActive()) return;  // drawChrome lays the rows out in groups
 
   fui::ListProps props;
   props.items = rowItems_;

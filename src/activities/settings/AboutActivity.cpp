@@ -10,10 +10,16 @@
 #include <esp_mac.h>
 
 #include <cstdio>
+#include <cstring>
+#include <utility>
 
 #include "MappedInputManager.h"
 #include "activities/RenderLock.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckScreens.h"
+#include "components/themes/extra/DeckTheme.h"
+#include "fontIds.h"
+#include "images/DeckOperator.h"
 
 namespace fui = freeink::ui;
 
@@ -162,7 +168,10 @@ void AboutActivity::onEnter() {
   const uint64_t sdTotal = Storage.sdTotalBytes();
   rowValues_[ITEM_SD_SIZE] = formatBytes(sdTotal);
   uint64_t sdUsed = 0;
+  sdTotal_ = sdTotal;
   if (Storage.sdUsedBytes(sdUsed)) {
+    sdUsed_ = sdUsed;
+    sdUsedKnown_ = true;
     rowValues_[ITEM_SD_USED] = formatBytes(sdUsed);
     rowValues_[ITEM_SD_FREE] = formatBytes(sdUsed <= sdTotal ? sdTotal - sdUsed : 0);
   } else {
@@ -170,8 +179,76 @@ void AboutActivity::onEnter() {
   }
 }
 
+void AboutActivity::drawChrome() {
+  if (!deck::listsActive()) {
+    UiListActivity::drawChrome();
+    return;
+  }
+  const GfxRenderer& r = renderer;
+  const int W = r.getScreenWidth();
+  deck::drawSmallHeader(r, "ABOUT");
+  if (deck::companionOn()) drawSprite(r, kOpLens, W - 12 - kOpLens.width, 46);
+  // Board id "xteink_x4_classic" -> "XTEINK X4 CLASSIC", model "X4C".
+  std::string full = BoardConfig::ACTIVE.name ? BoardConfig::ACTIVE.name : "";
+  for (char& c : full) {
+    if (c == '_') c = ' ';
+  }
+  full = deck::upper(full);
+  std::string model = full;
+  if (model.rfind("XTEINK ", 0) == 0) model.erase(0, 7);
+  for (const auto& rep : {std::pair<const char*, const char*>{" CLASSIC", "C"}, {" PRO", "P"}}) {
+    const size_t at = model.find(rep.first);
+    if (at != std::string::npos) model.replace(at, strlen(rep.first), rep.second);
+  }
+  const int big = deck::displayFont(76);
+  r.drawText(big, 16, 60 - deck::displayCapOffset(r, 76),
+             r.truncatedText(big, model.c_str(), W - 32 - (deck::companionOn() ? kOpLens.width : 0)).c_str());
+  const std::string sub = full + " \xc2\xb7 CROSSPOINT";
+  deck::drawTracked(r, UI_10_FONT_ID, 18, 194, r.truncatedText(UI_10_FONT_ID, sub.c_str(), 290).c_str(), 2, true, true);
+  // SD card: used / total and 20 segments.
+  const int small = SMALL_FONT_ID;
+  deck::drawTracked(r, small, 16, 278, "// SD CARD", 2, true, true);
+  const std::string usage =
+      deck::upper((sdUsedKnown_ ? formatBytes(sdUsed_) : std::string("?")) + " / " + formatBytes(sdTotal_));
+  const int uw = deck::trackedWidth(r, small, usage.c_str(), 2, true);
+  deck::drawTracked(r, small, W - 16 - uw, 278, usage.c_str(), 2, true, true);
+  const int filled = sdUsedKnown_ && sdTotal_ ? static_cast<int>((sdUsed_ * 20 + sdTotal_ - 1) / sdTotal_) : 0;
+  deck::segments(r, 16, 296, W - 32, 15, 20, std::min(filled, 20));
+  r.fillRect(16, 326, W - 32, 2, true);
+  // Key/value rows.
+  std::string display = rowValues_[ITEM_DISPLAY] + " \xc2\xb7 " + rowValues_[ITEM_RESOLUTION];
+  const std::pair<const char*, const std::string*> rows[] = {
+      {"FIRMWARE", &rowValues_[ITEM_FIRMWARE]}, {"CHIP", &rowValues_[ITEM_CHIP]},
+      {"FLASH", &rowValues_[ITEM_FLASH]},       {"DISPLAY", &display},
+      {"TOUCH", &rowValues_[ITEM_TOUCH]},       {"FRONTLIGHT", &rowValues_[ITEM_FRONTLIGHT]},
+      {"RTC", &rowValues_[ITEM_RTC]},           {"TILT SENSOR", &rowValues_[ITEM_IMU]},
+      {"MAC", &rowValues_[ITEM_MAC]},
+  };
+  int y = 328;
+  constexpr int kRowH = 39;
+  for (const auto& row : rows) {
+    const int cy = y + kRowH / 2;
+    deck::drawTracked(r, small, 28, cy - r.getLineHeight(small) / 2, row.first, 2, true, true);
+    const std::string v =
+        r.truncatedText(UI_10_FONT_ID, deck::upper(*row.second).c_str(), W - 16 - 178 - 8, EpdFontFamily::BOLD);
+    deck::drawTracked(r, UI_10_FONT_ID, 178, cy - r.getLineHeight(UI_10_FONT_ID) / 2, v.c_str(), 1, true, true);
+    for (int x = 16; x < W - 16; x += 6) r.fillRect(x, y + kRowH - 1, 3, 1, true);
+    y += kRowH;
+  }
+}
+
+void AboutActivity::drawFooter() {
+  if (!deck::listsActive()) {
+    UiListActivity::drawFooter();
+    return;
+  }
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+
 void AboutActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
+  if (deck::listsActive()) return;  // drawChrome draws the whole sheet
   screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
                                                 static_cast<int16_t>(metrics.buttonHintsHeight), 0});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));

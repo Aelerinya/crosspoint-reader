@@ -122,6 +122,11 @@ class WifiSelectionActivity final : public Activity, private UiAppHost {
   void renderConnecting(const Rect* screen, const ThemeMetrics* metrics) const;
   void renderConnected(const Rect* screen, const ThemeMetrics* metrics) const;
   void renderConnectionFailed(const Rect* screen, const ThemeMetrics* metrics) const;
+  // Deck v2 layouts for every state (design/uncovered/designed/wifi-*.png).
+  void renderDeck();
+  void renderDeckList();
+  void renderDeckPrompt();
+  std::string deckMac() const;
 
   void startWifiScan(bool autoScan = false);
   void processWifiScanResults();

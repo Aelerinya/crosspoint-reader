@@ -27,6 +27,10 @@ class OpdsServerListActivity final : public UiListActivity {
   // Picker mode backs out to the home menu rather than finishing.
   void onBackButton() override;
   const char* headerTitle() const override;
+  void drawChrome() override;
+  void deckListSpec(deck::ListSpec& spec) override { spec.style = deck::ListStyle::Rows; }
+  void deckRowExtra(int index, deck::Row& row) override;
+  int deckRowsTop() const;
 
   bool pickerMode = false;
   OptionPopup optionPopup;

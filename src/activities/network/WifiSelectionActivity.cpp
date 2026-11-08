@@ -15,7 +15,11 @@
 #include "WifiCredentialStore.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckScreens.h"
+#include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
+#include "images/DeckOperator.h"
 #include "util/PluginEvents.h"
 
 namespace fui = freeink::ui;
@@ -347,18 +351,19 @@ void WifiSelectionActivity::promptPasswordEntry() {
   // Show password entry
   state = WifiSelectionState::PASSWORD_ENTRY;
   // Don't allow screen updates while changing activity
-  startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_ENTER_WIFI_PASSWORD),
-                                                                 "",  // No initial text
-                                                                 64,  // Max password length
-                                                                 InputType::Text),
-                         [this](const ActivityResult& result) {
-                           if (result.isCancelled) {
-                             state = WifiSelectionState::NETWORK_LIST;
-                           } else {
-                             enteredPassword = std::get<KeyboardResult>(result.data).text;
-                             // state will be updated in next loop iteration
-                           }
-                         });
+  auto keyboard = std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_ENTER_WIFI_PASSWORD),
+                                                          "",  // No initial text
+                                                          64,  // Max password length
+                                                          InputType::Text);
+  keyboard->setDeckTag("PASSWORD", selectedSSID + " \xc2\xb7 WPA2");
+  startActivityForResult(std::move(keyboard), [this](const ActivityResult& result) {
+    if (result.isCancelled) {
+      state = WifiSelectionState::NETWORK_LIST;
+    } else {
+      enteredPassword = std::get<KeyboardResult>(result.data).text;
+      // state will be updated in next loop iteration
+    }
+  });
 }
 
 void WifiSelectionActivity::promptHiddenSsid() {
@@ -370,21 +375,22 @@ void WifiSelectionActivity::promptHiddenSsid() {
 
   // Suppress rendering during the activity transition (see render()).
   state = WifiSelectionState::HIDDEN_SSID_ENTRY;
-  startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_ENTER_WIFI_SSID),
-                                                                 "",  // No initial text
-                                                                 32,  // Max SSID length (IEEE 802.11: 32 bytes)
-                                                                 InputType::Text),
-                         [this](const ActivityResult& result) {
-                           if (result.isCancelled) {
-                             state = WifiSelectionState::NETWORK_LIST;
-                             return;
-                           }
-                           selectedSSID = std::get<KeyboardResult>(result.data).text;
-                           if (selectedSSID.empty()) {
-                             state = WifiSelectionState::NETWORK_LIST;
-                           }
-                           // Otherwise stay in HIDDEN_SSID_ENTRY; loop() continues the flow.
-                         });
+  auto keyboard = std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_ENTER_WIFI_SSID),
+                                                          "",  // No initial text
+                                                          32,  // Max SSID length (IEEE 802.11: 32 bytes)
+                                                          InputType::Text);
+  keyboard->setDeckTag("WI-FI", "HIDDEN NETWORK \xc2\xb7 NAME");
+  startActivityForResult(std::move(keyboard), [this](const ActivityResult& result) {
+    if (result.isCancelled) {
+      state = WifiSelectionState::NETWORK_LIST;
+      return;
+    }
+    selectedSSID = std::get<KeyboardResult>(result.data).text;
+    if (selectedSSID.empty()) {
+      state = WifiSelectionState::NETWORK_LIST;
+    }
+    // Otherwise stay in HIDDEN_SSID_ENTRY; loop() continues the flow.
+  });
 }
 
 bool WifiSelectionActivity::hasAttemptedAutoSsid(const std::string& ssid) const {
@@ -844,6 +850,11 @@ void WifiSelectionActivity::render(RenderLock&&) {
     return;
   }
 
+  if (deck::listsActive()) {
+    renderDeck();
+    return;
+  }
+
   renderer.clearScreen();
 
   auto& theme = UITheme::getInstance();
@@ -1098,6 +1109,215 @@ void WifiSelectionActivity::renderConnectionFailed(const Rect* screen, const The
 
   // Use centralized button hints
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_DONE), "", "");
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+
+std::string WifiSelectionActivity::deckMac() const {
+  // "MAC Address aa-bb-..." -> "MAC AA:BB:...".
+  const size_t sp = cachedMacAddress.rfind(' ');
+  std::string mac = sp == std::string::npos ? cachedMacAddress : cachedMacAddress.substr(sp + 1);
+  for (char& c : mac) {
+    if (c == '-') c = ':';
+  }
+  return "MAC " + deck::upper(mac);
+}
+
+void WifiSelectionActivity::renderDeck() {
+  const GfxRenderer& r = renderer;
+  const int W = r.getScreenWidth();
+  const int small = SMALL_FONT_ID;
+  renderer.clearScreen();
+  switch (state) {
+    case WifiSelectionState::NETWORK_LIST:
+      renderDeckList();
+      break;
+    case WifiSelectionState::SAVE_PROMPT:
+    case WifiSelectionState::FORGET_PROMPT:
+      renderDeckPrompt();
+      break;
+    case WifiSelectionState::AUTO_CONNECTING:
+    case WifiSelectionState::SCANNING:
+    case WifiSelectionState::CONNECTING: {
+      const bool scanning = state == WifiSelectionState::SCANNING;
+      deck::drawSmallHeader(r, "WI-FI");
+      deck::drawStatePanel(r, scanning ? "SCANNING" : "CONNECTING");
+      int artTop = 203;
+      if (!scanning) {
+        deck::drawArrowTag(r, 16, 186, selectedSSID.c_str());
+        artTop = 243;
+      }
+      if (deck::companionOn()) drawSprite(r, kOpScan, (W - kOpScan.width) / 2 + 4, artTop);
+      // No real progress to show: a fixed partial bar, fuller once connecting.
+      deck::segments(r, 22, 668, W - 44, 14, 20, scanning ? 7 : 12);
+      if (scanning) deck::drawTracked(r, small, 22, 698, deckMac().c_str(), 2, true, true);
+      if (autoConnecting) {
+        const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_SHOW_NETWORKS), "", "");
+        GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+      }
+      break;
+    }
+    case WifiSelectionState::CONNECTED: {
+      deck::drawSmallHeader(r, "WI-FI");
+      deck::drawStatePanel(r, "CONNECTED");
+      deck::drawArrowTag(r, 16, 186, selectedSSID.c_str());
+      r.drawRect(16, 236, W - 32, 84, 3, true);
+      deck::drawTracked(r, small, 32, 250, "IP", 2, true, true);
+      r.drawText(UI_12_FONT_ID, 32, 274, connectedIP.c_str(), true, EpdFontFamily::BOLD);
+      if (deck::companionOn()) drawSprite(r, kOpScan, (W - kOpScan.width) / 2 + 4, 330);
+      const auto labels = mappedInput.mapLabels("", tr(STR_DONE), "", "");
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+      break;
+    }
+    case WifiSelectionState::CONNECTION_FAILED: {
+      deck::drawSmallHeader(r, "WI-FI");
+      deck::drawStatePanel(r, "FAILED");
+      std::string line = deck::upper(selectedSSID + " \xc2\xb7 " + connectionError);
+      line = r.truncatedText(small, line.c_str(), W - 40, EpdFontFamily::BOLD);
+      deck::drawTracked(r, small, 16, 187, line.c_str(), 2, true, true);
+      if (deck::companionOn()) drawSprite(r, kOpFail, (W - kOpFail.width) / 2, 236);
+      const auto labels = mappedInput.mapLabels(tr(STR_BACK), "OK", "", "");
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+      break;
+    }
+    case WifiSelectionState::PASSWORD_ENTRY:
+    case WifiSelectionState::HIDDEN_SSID_ENTRY:
+      break;
+  }
+  renderer.displayBuffer();
+}
+
+void WifiSelectionActivity::renderDeckList() {
+  const GfxRenderer& r = renderer;
+  const int W = r.getScreenWidth();
+  const int H = r.getScreenHeight();
+  const int small = SMALL_FONT_ID;
+  char found[24];
+  snprintf(found, sizeof(found), "%u FOUND", static_cast<unsigned>(realNetworkCount));
+  deck::drawSmallHeader(r, "WI-FI", found);
+  deck::drawBigTitle(r, 53, "NETWORKS", "無線");
+  deck::drawTitleRule(r, 113);
+  const int top = 116;
+  constexpr int kRowH = 57, kAddH = 50;
+  const int listBottom = H - 54 - 30;  // above the MAC line and key bar
+  if (networks.empty()) {
+    deck::drawTracked(r, UI_10_FONT_ID, 28, top + 24, deck::upper(tr(STR_NO_NETWORKS)).c_str(), 2, true, true);
+    deck::drawTracked(r, small, 28, top + 54, deck::upper(tr(STR_PRESS_OK_SCAN)).c_str(), 2, true, true);
+  }
+  // Window of rows around the selection.
+  const int count = static_cast<int>(networks.size());
+  const int fit = std::max(1, (listBottom - top) / kRowH);
+  int first = 0;
+  const int sel = static_cast<int>(selectedNetworkIndex);
+  if (sel >= fit) first = sel - fit + 1;
+  int y = top;
+  for (int i = first; i < count && y + kRowH <= listBottom + kRowH - kAddH; ++i) {
+    const auto& net = networks[i];
+    const bool on = i == sel;
+    const int h = net.isHiddenPlaceholder ? kAddH : kRowH;
+    if (y + h > listBottom) break;
+    if (on) r.fillRect(16, y, W - 32, h, true);
+    const bool ink = !on;
+    const int cy = y + h / 2;
+    if (net.isHiddenPlaceholder) {
+      deck::drawTracked(r, UI_10_FONT_ID, 28, cy - r.getLineHeight(UI_10_FONT_ID) / 2, "+ ADD HIDDEN NETWORK", 2, ink,
+                        true);
+    } else {
+      int right = W - 28;
+      if (on) {
+        const int xs[] = {right - 9, right, right - 9};
+        const int ys[] = {cy - 7, cy, cy + 7};
+        r.fillPolygon(xs, ys, 3, false);
+        right -= 20;
+      }
+      const int level = net.rssi >= -55 ? 4 : net.rssi >= -65 ? 3 : net.rssi >= -75 ? 2 : 1;
+      deck::drawSignalBars(r, right - 28, cy - 7, level, ink);
+      right -= 40;
+      const char* sec = net.isEncrypted ? "WPA2" : "OPEN";
+      deck::drawOutlineTag(r, right, cy, sec, ink);
+      right -= deck::trackedWidth(r, small, sec, 1, true) + 24;
+      const int font = deck::displayFont(13);
+      const int cap = deck::bigTitleCap(13);
+      const std::string name = r.truncatedText(font, deck::upper(net.ssid).c_str(), right - 28);
+      const int nameTop = net.hasSavedPassword ? y + 12 : cy - cap / 2;
+      r.drawText(font, 28, nameTop - deck::displayCapOffset(r, 13), name.c_str(), ink);
+      if (net.hasSavedPassword) {
+        const int sy = nameTop + cap + 6;
+        const int dcy = sy + r.getLineHeight(small) / 2;
+        const int xs[] = {33, 38, 33, 28};
+        const int ys[] = {dcy - 5, dcy, dcy + 5, dcy};
+        r.fillPolygon(xs, ys, 4, ink);
+        deck::drawTracked(r, small, 44, sy, "SAVED", 2, ink, true);
+      }
+    }
+    if (!on) {
+      for (int x = 16; x < W - 16; x += 6) r.fillRect(x, y + h - 1, 3, 1, true);
+    }
+    y += h;
+  }
+  const int macY = H - 54 - 44;
+  if (deck::companionOn() && macY - kOpScanS.height > y + 10) {
+    drawSprite(r, kOpScanS, W - 20 - kOpScanS.width, H - 54 - 10 - kOpScanS.height);
+  }
+  deck::drawTracked(r, small, 16, macY + 6, deckMac().c_str(), 2, true, true);
+  const bool hasSavedPassword = !networks.empty() && networks[selectedNetworkIndex].hasSavedPassword;
+  const auto labels =
+      mappedInput.mapLabels(tr(STR_BACK), tr(STR_CONNECT), hasSavedPassword ? tr(STR_FORGET_BUTTON) : "", "RESCAN");
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+
+void WifiSelectionActivity::renderDeckPrompt() {
+  const GfxRenderer& r = renderer;
+  const int W = r.getScreenWidth();
+  const bool forget = state == WifiSelectionState::FORGET_PROMPT;
+  deck::hatchShade(r);
+  deck::drawSmallHeader(r, "WI-FI");
+  // Card: chamfered, 3 px outline.
+  const int x0 = 22, y0 = 191, w = W - 44, h = 380;
+  deck::fillChamfer(r, x0, y0, w, h, 24, true);
+  deck::fillChamfer(r, x0 + 3, y0 + 3, w - 6, h - 6, 23, false);
+  // SSID tag flush right, slanted left edge.
+  {
+    const std::string t =
+        r.truncatedText(UI_10_FONT_ID, deck::upper(selectedSSID).c_str(), w - 80, EpdFontFamily::BOLD);
+    const int tw = deck::trackedWidth(r, UI_10_FONT_ID, t.c_str(), 2, true);
+    const int th = r.getLineHeight(UI_10_FONT_ID) + 14;
+    const int tx = x0 + w - 3 - tw - 30;
+    const int ty = y0 + 19;
+    const int xs[] = {tx, x0 + w - 3, x0 + w - 3, tx - 10};
+    const int ys[] = {ty, ty, ty + th, ty + th};
+    r.fillPolygon(xs, ys, 4, true);
+    deck::drawTracked(r, UI_10_FONT_ID, tx + 14, ty + 7, t.c_str(), 2, false, true);
+  }
+  const int big = deck::displayFont(46);
+  const char* title = forget ? "FORGET" : "CONNECTED";
+  r.drawText(big, x0 + 26, y0 + 70 - deck::displayCapOffset(r, 46), title);
+  if (!forget) r.drawText(deck::kanaFont(), x0 + 26 + r.getTextWidth(big, title) + 12, y0 + 64, "接続");
+  const int q = deck::displayFont(22);
+  const std::string question = deck::upper(forget ? tr(STR_FORGET_AND_REMOVE) : tr(STR_SAVE_PASSWORD));
+  r.drawText(q, x0 + 26, y0 + 166 - deck::displayCapOffset(r, 22),
+             r.truncatedText(q, question.c_str(), w - 52).c_str());
+  const int selection = forget ? forgetPromptSelection : savePromptSelection;
+  const char* options[2] = {forget ? tr(STR_CANCEL) : "YES, REMEMBER IT",
+                            forget ? tr(STR_FORGET_NETWORK) : "NO, JUST THIS TIME"};
+  for (int i = 0; i < 2; ++i) {
+    const int oy = y0 + 213 + i * 66;
+    const int ow = w - 52, oh = 54;
+    const bool on = i == selection;
+    if (on) {
+      deck::fillChamfer(r, x0 + 25, oy, ow, oh, 14, true);
+      const int cy = oy + oh / 2;
+      const int xs[] = {x0 + 44, x0 + 56, x0 + 44};
+      const int ys[] = {cy - 7, cy, cy + 7};
+      r.fillPolygon(xs, ys, 3, false);
+    } else {
+      deck::drawChamfer(r, x0 + 25, oy, ow, oh, 14, 2);
+    }
+    const int f = deck::displayFont(22);
+    const std::string label = r.truncatedText(f, deck::upper(options[i]).c_str(), ow - 80);
+    r.drawText(f, x0 + 66, oy + (oh - deck::bigTitleCap(22)) / 2 - deck::displayCapOffset(r, 22), label.c_str(), !on);
+  }
+  const auto labels =
+      mappedInput.mapLabels(forget ? tr(STR_BACK) : tr(STR_CANCEL), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 

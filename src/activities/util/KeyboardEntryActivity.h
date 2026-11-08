@@ -27,6 +27,11 @@ class KeyboardEntryActivity : public Activity {
         maxLength(maxLength),
         inputType(inputType) {}
 
+  // Deck theme: short header label and a tag under it (e.g. "PASSWORD", "NETWORK · WPA2").
+  void setDeckTag(std::string header, std::string tag) {
+    deckHeader = std::move(header);
+    deckTag = std::move(tag);
+  }
   void onEnter() override;
   void onExit() override;
   void loop() override;
@@ -36,6 +41,10 @@ class KeyboardEntryActivity : public Activity {
  private:
   std::string title;
   std::string text;
+  std::string deckTag;
+  std::string deckHeader;
+  // Deck v2 header, tag, big field and hints above the keyboard (button boards, keyboard focus).
+  void renderDeckTop();
   size_t maxLength;
   InputType inputType;
   bool passwordVisible = false;

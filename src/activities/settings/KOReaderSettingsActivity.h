@@ -25,6 +25,10 @@ class KOReaderSettingsActivity final : public UiListActivity {
   void activateIndex(int index) override;
   bool handleCustomInput() override;
   const char* headerTitle() const override;
+  // Deck v2: grouped rows + two buttons, drawn whole (values from buildScreen).
+  void drawChrome() override;
+  void drawFooter() override;
+  void refreshRowValues();
 
   // Row storage: MENU_ITEMS is a compile-time constant, so fixed-capacity
   // storage avoids any heap allocation for the row list. Labels are set once
