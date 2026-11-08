@@ -360,6 +360,11 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   enum DECK_TRANSITIONS { DECK_TRANSITIONS_OFF = 0, DECK_TRANSITIONS_SHEAR = 1, DECK_TRANSITIONS_FLASH = 2 };
   uint8_t deckTransitions = DECK_TRANSITIONS_FLASH;
   uint8_t deckCompanion = 1;
+  // Bookplate page added to books sent to another reader (Send to Reader).
+  enum BOOKPLATE_STYLE { BOOKPLATE_IMAGE_TEXT = 0, BOOKPLATE_TEXT_ONLY = 1 };
+  uint8_t bookplateEnabled = 1;
+  uint8_t bookplateStyle = BOOKPLATE_IMAGE_TEXT;
+  char bookplateName[32] = "";  // the sender's signature; no bookplate while empty
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // Power button return from footnotes (1 = enabled, 0 = disabled)

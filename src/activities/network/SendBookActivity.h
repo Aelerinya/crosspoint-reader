@@ -8,6 +8,9 @@
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 
+class BookplateInput;
+class BookplateEpub;
+
 // Sends one book to a nearby reader that is showing its Wi-Fi transfer
 // hotspot (stock Xteink or CrossPoint). The user picks the network; the
 // receiver is then identified by probing it. See lib/BookSender/README.md.
@@ -41,6 +44,8 @@ class SendBookActivity final : public Activity {
   void showPicker();
   void choose(int index);
   void connectTo(const char* password);
+  // Builds the rewritten EPUB with a bookplate; false = send the file as is.
+  bool preparePlate(BookplateInput& input, BookplateEpub& plated);
   void transfer(bool overwrite);
   void fail(const std::string& detail);
   const char* peerLabel() const;

@@ -35,6 +35,7 @@
 #include "TextSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
+#include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
@@ -73,6 +74,12 @@ SettingsSection sectionFor(const SettingInfo& setting) {
       setting.valuePtr == &CrossPointSettings::removeReadBooksFromRecents ||
       setting.valuePtr == &CrossPointSettings::moveFinishedToReadFolder) {
     return SettingsSection::Library;
+  }
+  // The name's device row is the BookplateName action.
+  if (setting.key && strcmp(setting.key, "bookplateName") == 0) return SettingsSection::End;
+  if (setting.valuePtr == &CrossPointSettings::bookplateEnabled ||
+      setting.valuePtr == &CrossPointSettings::bookplateStyle) {
+    return SettingsSection::Network;
   }
   if (setting.valuePtr == &CrossPointSettings::sleepTimeoutMinutes) return SettingsSection::Display;
   if (setting.category == StrId::STR_CAT_DISPLAY) return SettingsSection::Display;
@@ -119,6 +126,9 @@ void SettingsActivity::rebuildSettings() {
   if (!BoardConfig::hasTouch()) {
     addAction(SettingsSection::Controls, StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons);
   }
+
+  // Sharing (bookplate) rows lead the Network section: name, then the shared toggle and style.
+  addAction(SettingsSection::Network, StrId::STR_BOOKPLATE_NAME, SettingAction::BookplateName);
 
   for (auto& setting : all) {
     if (sectionFor(setting) != section || !showOnDevice(setting)) continue;
@@ -365,6 +375,20 @@ void SettingsActivity::toggleSelectedSetting() {
           LOG_ERR("SETTINGS", "OOM: ClockSettingsActivity");
         }
         break;
+      case SettingAction::BookplateName:
+        startActivityForResult(std::make_unique<KeyboardEntryActivity>(
+                                   renderer, mappedInput, tr(STR_BOOKPLATE_NAME), SETTINGS.bookplateName,
+                                   sizeof(SETTINGS.bookplateName) - 1, InputType::Text),
+                               [this](const ActivityResult& result) {
+                                 if (!result.isCancelled) {
+                                   const auto& kb = std::get<KeyboardResult>(result.data);
+                                   strncpy(SETTINGS.bookplateName, kb.text.c_str(), sizeof(SETTINGS.bookplateName) - 1);
+                                   SETTINGS.bookplateName[sizeof(SETTINGS.bookplateName) - 1] = '\0';
+                                   SETTINGS.saveToFile();
+                                 }
+                                 requestUpdate();
+                               });
+        break;
       case SettingAction::KOReaderSync:
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
@@ -523,6 +547,9 @@ void SettingsActivity::openSleepTimeoutPicker() {
 
 std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
   if (setting.action == SettingAction::HomeButton) return tr(STR_CONFIGURE);
+  if (setting.action == SettingAction::BookplateName) {
+    return SETTINGS.bookplateName[0] ? SETTINGS.bookplateName : tr(STR_NOT_SET);
+  }
   if (setting.action == SettingAction::Plugins) return SETTINGS.pluginsEnabled ? tr(STR_ENABLED) : tr(STR_DISABLED);
   if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
     // Guard like the valueGetter branch below: a corrupt/migrated settings

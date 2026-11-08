@@ -207,7 +207,7 @@ Books cannot be removed from your device through Calibre. Use the web interface 
 
 ### 3.6 Settings
 
-Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **Library**, and **Connectivity**. System contains language, keyboard layouts, hidden-file visibility, Clock (where available), firmware updates, and About. Library contains Use Book Metadata, Clear Read Books from Recent List, and Move Finished Books to Read Folder. Time to Sleep is under Display; Clear Reading Cache is under Reader. Connectivity contains Wi-Fi, Bluetooth Page Turner, CrossPoint Sync, OPDS, and the Plugins toggle. The options below describe these settings.
+Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **Library**, and **Connectivity**. System contains language, keyboard layouts, hidden-file visibility, Clock (where available), firmware updates, and About. Library contains Use Book Metadata, Clear Read Books from Recent List, and Move Finished Books to Read Folder. Time to Sleep is under Display; Clear Reading Cache is under Reader. Connectivity contains the bookplate settings (Your Name, Bookplate When Sending, Page Style), Wi-Fi, Bluetooth Page Turner, CrossPoint Sync, OPDS, and the Plugins toggle. The options below describe these settings.
 
 #### 3.6.1 Display
 
@@ -558,6 +558,16 @@ Once any of the options above is set up, press **Confirm** while reading to open
 - **Sync Clippings** is off by default. Enable it only for a compatible CrossPoint Sync server; manual **Sync Progress** then uploads and downloads this book’s clippings too. Leave it off for ordinary KOSync servers.
 - With **Sync Behavior** set to **Ask every time**, choose **Apply Remote** to jump to remote progress or **Upload Local** to push current progress.
 - With **Sync Behavior** set to **Smart sync**, CrossPoint auto-resolves simple cases: upload when no remote progress exists, confirm and leave both unchanged when local and remote progress are already synchronized, upload when local progress is further ahead, or apply remote when remote progress is further ahead.
+
+#### 3.6.8 Bookplate (Send to Reader)
+
+Hold **Confirm** on a book in the file browser and choose **Send to Reader** to send it over Wi-Fi to another reader that is showing its transfer hotspot. The copy you send can carry a bookplate: an "Ex libris" page after the cover with the book's title, your name, and the date. Your own copy is not changed.
+
+- **Your Name**: the name signed on the bookplate. No bookplate is added while it is empty.
+- **Bookplate When Sending**: on by default.
+- **Page Style**: **Image + Text** (a full-page picture, then the same words as text for readers that hide images) or **Text Only**.
+
+Sending the same book again replaces its old bookplate. The page text is in English. The bookplate needs more free memory than the X4 has while Wi-Fi is on, so books sent from an X4 go out unchanged.
 
 ### 3.7 Sleep Screen
 

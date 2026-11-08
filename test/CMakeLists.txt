@@ -78,6 +78,7 @@ add_subdirectory(fs_helpers)
 add_subdirectory(http_header)
 add_subdirectory(txt_to_html)
 add_subdirectory(book_sender)
+add_subdirectory(bookplate)
 
 add_subdirectory(absolute_grayscale)
 

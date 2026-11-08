@@ -657,6 +657,14 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
   }
 }
 
+bool GfxRenderer::readPixel(const int x, const int y) const {
+  int phyX = 0;
+  int phyY = 0;
+  rotateCoordinates(orientation, x, y, &phyX, &phyY, panelWidth, panelHeight);
+  if (!frameBuffer || phyX < 0 || phyX >= panelWidth || phyY < 0 || phyY >= panelHeight) return false;
+  return !(frameBuffer[static_cast<uint32_t>(phyY) * panelWidthBytes + phyX / 8] & (1 << (7 - phyX % 8)));
+}
+
 int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontFamily::Style style,
                               const BidiUtils::BidiBaseDir baseDir) const {
   if (text == nullptr || *text == '\0') {

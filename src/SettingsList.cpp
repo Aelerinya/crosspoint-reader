@@ -218,6 +218,17 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   emit(SettingInfo::Toggle(StrId::STR_MOVE_FINISHED_TO_READ, &CrossPointSettings::moveFinishedToReadFolder,
                            "moveFinishedToReadFolder", StrId::STR_CAT_SYSTEM));
 
+  // Bookplate for Send to Reader. The device shows these in the Network section
+  // (SettingsActivity::sectionFor); this name entry serves the web page and
+  // persistence, the device row is the BookplateName action.
+  emit(SettingInfo::String(StrId::STR_BOOKPLATE_NAME, &SETTINGS.bookplateName[0], sizeof(SETTINGS.bookplateName),
+                           "bookplateName", StrId::STR_CAT_SYSTEM));
+  emit(SettingInfo::Toggle(StrId::STR_BOOKPLATE_ENABLED, &CrossPointSettings::bookplateEnabled, "bookplateEnabled",
+                           StrId::STR_CAT_SYSTEM));
+  emit(SettingInfo::Enum(StrId::STR_BOOKPLATE_STYLE, &CrossPointSettings::bookplateStyle,
+                         {StrId::STR_BOOKPLATE_IMAGE_TEXT, StrId::STR_BOOKPLATE_TEXT_ONLY}, "bookplateStyle",
+                         StrId::STR_CAT_SYSTEM));
+
   // OPDS download folder: persisted + web-exposed, but category-less so it
   // is hidden from the on-device Settings screen (edited via OPDS UI).
   emit(SettingInfo::String(StrId::STR_OPDS_DOWNLOAD_FOLDER, &SETTINGS.opdsDownloadFolder[0],

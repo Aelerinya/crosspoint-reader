@@ -1,20 +1,26 @@
 #include "SendBookActivity.h"
 
+#include <Bookplate.h>
 #include <GfxRenderer.h>
+#include <HalMemory.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
 
 #include <algorithm>
 #include <cstring>
+#include <ctime>
 
+#include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/RenderLock.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckBookplate.h"
 #include "fontIds.h"
 #include "util/TaskWatchdog.h"
 
@@ -54,6 +60,45 @@ class FileSource final : public BookSendSource {
   explicit FileSource(HalFile& f) : file(f) {}
   int read(uint8_t* buf, const size_t len) override { return file.read(buf, len); }
 };
+
+class FileInput final : public BookplateInput {
+  HalFile& file;
+  uint32_t length;
+
+ public:
+  explicit FileInput(HalFile& f) : file(f), length(static_cast<uint32_t>(f.fileSize())) {}
+  uint32_t size() const override { return length; }
+  bool readAt(const uint32_t offset, uint8_t* buf, const size_t len) override {
+    if (!file.seek(offset)) return false;
+    size_t done = 0;
+    while (done < len) {
+      const int n = file.read(buf + done, len - done);
+      if (n <= 0) return false;
+      done += static_cast<size_t>(n);
+    }
+    return true;
+  }
+};
+
+// Bookplate memory. Before reading the book: enough free heap to try at all
+// (the X4C's PSRAM; the X4 with Wi-Fi up never has it). After reading the zip
+// index, BookplateEpub reports what the rewrite needs; drawing the image adds the
+// 48 KB page copy, the ~49 KB stored-deflate stream and the PNG built from it.
+// Short of any of these, the book goes out unchanged.
+constexpr size_t PLATE_MIN_FREE = 256 * 1024;
+constexpr size_t PLATE_PNG_SIZE = 49 * 1024;
+constexpr size_t PLATE_IMAGE_WORK = 48 * 1024 + 2 * PLATE_PNG_SIZE;
+constexpr size_t PLATE_MARGIN = 64 * 1024;
+
+const char* const MONTHS[] = {"January", "February", "March",     "April",   "May",      "June",
+                              "July",    "August",   "September", "October", "November", "December"};
+
+bool endsWithEpub(const std::string& name) {
+  if (name.size() < 5) return false;
+  std::string ext = name.substr(name.size() - 5);
+  for (char& c : ext) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+  return ext == ".epub";
+}
 
 const char* errorText(const BookSendError error) {
   switch (error) {
@@ -210,6 +255,60 @@ void SendBookActivity::fail(const std::string& detail) {
   requestUpdate();
 }
 
+bool SendBookActivity::preparePlate(BookplateInput& input, BookplateEpub& plated) {
+  if (!SETTINGS.bookplateEnabled || SETTINGS.bookplateName[0] == '\0' || !endsWithEpub(bookName)) return false;
+  if (HalMemory::getDefaultHeap().freeBytes < PLATE_MIN_FREE) {
+    LOG_INF("SEND", "No bookplate: low memory");
+    return false;
+  }
+  std::string error;
+  if (!plated.open(input, &error)) {
+    LOG_ERR("SEND", "No bookplate: %s", error.c_str());
+    return false;
+  }
+  const bool image = SETTINGS.bookplateStyle == CrossPointSettings::BOOKPLATE_IMAGE_TEXT;
+  const size_t pngSize = image ? PLATE_PNG_SIZE : 0;
+  const size_t need = plated.memoryNeeded(pngSize) + (image ? PLATE_IMAGE_WORK : 0) + PLATE_MARGIN;
+  const size_t block = std::max(plated.largestAllocation(pngSize), image ? PLATE_PNG_SIZE : size_t{0});
+  const HalMemory::HeapStats heap = HalMemory::getDefaultHeap();
+  if (heap.freeBytes < need || heap.largestBlockBytes < block) {
+    LOG_INF("SEND", "No bookplate: needs %u (block %u), %u free (block %u)", static_cast<unsigned>(need),
+            static_cast<unsigned>(block), static_cast<unsigned>(heap.freeBytes),
+            static_cast<unsigned>(heap.largestBlockBytes));
+    return false;
+  }
+
+  BookplateContent content;
+  content.title = plated.title();
+  if (content.title.empty()) content.title = bookName.substr(0, bookName.size() - 5);
+  content.from = SETTINGS.bookplateName;
+  std::string shortDate;
+  if (const int64_t now = trustedtime::trustedNow()) {
+    const time_t t = static_cast<time_t>(now);
+    tm local{};
+    localtime_r(&t, &local);
+    char buf[40];
+    snprintf(buf, sizeof(buf), "%d %s %d", local.tm_mday, MONTHS[local.tm_mon], local.tm_year + 1900);
+    content.date = buf;
+    snprintf(buf, sizeof(buf), "%02d %.3s %d", local.tm_mday, MONTHS[local.tm_mon], local.tm_year + 1900);
+    shortDate = buf;
+    for (char& c : shortDate) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+  }
+  if (image) {
+    // Drawn in the framebuffer; the Sending screen repaints it right after.
+    RenderLock lock(*this);
+    content.png = deck::renderBookplatePng(renderer, content.title, content.from, shortDate);
+    if (content.png.empty()) LOG_ERR("SEND", "Bookplate image failed; text only");
+  }
+  if (!plated.prepare(content, &error)) {
+    LOG_ERR("SEND", "No bookplate: %s", error.c_str());
+    return false;
+  }
+  LOG_DBG("SEND", "Bookplate added: %u -> %u bytes", static_cast<unsigned>(input.size()),
+          static_cast<unsigned>(plated.size()));
+  return true;
+}
+
 void SendBookActivity::transfer(const bool overwrite) {
   const IPAddress gateway = WiFi.gatewayIP();
   const std::string host = gateway != IPAddress() ? gateway.toString().c_str()
@@ -253,7 +352,11 @@ void SendBookActivity::transfer(const bool overwrite) {
   request.host = host.c_str();
   request.firmware = peerFirmware;
   request.fileName = bookName.c_str();
-  request.size = static_cast<uint32_t>(file.fileSize());
+  FileInput input(file);
+  BookplateEpub plated;
+  const bool withPlate = preparePlate(input, plated);
+  if (!withPlate) file.seek(0);
+  request.size = withPlate ? plated.size() : static_cast<uint32_t>(file.fileSize());
   request.overwrite = overwrite;
 
   sentBytes = 0;
@@ -265,7 +368,8 @@ void SendBookActivity::transfer(const bool overwrite) {
   }
   requestUpdateAndWait();
 
-  FileSource source(file);
+  FileSource fileSource(file);
+  BookSendSource& source = withPlate ? static_cast<BookSendSource&>(plated) : fileSource;
   const BookSendResult result = BookSender::send(
       transport, source, request, chunk.get(), CHUNK_SIZE,
       [](void* ctx, const uint32_t sent, const uint32_t total) {
