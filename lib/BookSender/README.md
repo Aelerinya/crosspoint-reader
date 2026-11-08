@@ -25,18 +25,21 @@ tests wire it to POSIX sockets and memory buffers.
 | Wi-Fi network | `E-Paper`, password `12345678` | `CrossPoint-Reader`, open |
 | Reader's address | `192.168.3.3` | `192.168.4.1` (the AP's gateway) |
 
-The sender joins that network and uses `WiFi.gatewayIP()`, falling back to the
-address above.
+The sender scans and lists the nearby networks (default reader hotspot names
+first, then by signal) and joins only the one the user picks, asking for a
+password when the network needs one. A receiver whose hotspot has another name
+works too. The sender uses `WiFi.gatewayIP()`, falling back to the address
+above (`192.168.4.1` for a network with another name).
 
 ## Protocols
 
 ### Telling them apart
 
-The hotspot name decides which protocol is used. `BookSender::detect()` also
-probes the server (`GET /api/status` answering `200` → CrossPoint, else
-`GET /status` answering `200` → stock); the firmware only logs a mismatch, which
-helps when a receiver behaves unexpectedly. It would be the way to identify a
-reader found on a shared Wi-Fi network.
+After joining, `BookSender::detect()` probes the server (`GET /api/status`
+answering `200` → CrossPoint, else `GET /status` answering `200` → stock). The
+probe decides the protocol. If nothing answers, a default hotspot name still
+decides it (as before the probe was used); on any other network the sender stops
+with "No reader answered on this network".
 
 ### CrossPoint (documented in `docs/webserver-endpoints.md`)
 

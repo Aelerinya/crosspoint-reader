@@ -3,20 +3,30 @@
 #include <BookSender.h>
 
 #include <string>
+#include <vector>
 
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
 
 // Sends one book to a nearby reader that is showing its Wi-Fi transfer
-// hotspot (stock Xteink or CrossPoint). See lib/BookSender/README.md.
+// hotspot (stock Xteink or CrossPoint). The user picks the network; the
+// receiver is then identified by probing it. See lib/BookSender/README.md.
 class SendBookActivity final : public Activity {
-  enum class State { Scanning, NoneFound, Picking, AskReplace, Connecting, Sending, Done, Failed };
+  enum class State { Scanning, NoneFound, Picking, EnteringPassword, AskReplace, Connecting, Sending, Done, Failed };
+
+  struct Network {
+    std::string ssid;
+    int32_t rssi;
+    bool encrypted;
+    const PeerHotspot* known;  // set when the SSID is a default reader hotspot name
+  };
 
   std::string bookPath;
   std::string bookName;
   State state = State::Scanning;
-  const PeerHotspot* found[2] = {nullptr, nullptr};  // best stock / CrossPoint hotspot in range
-  const PeerHotspot* peer = nullptr;
+  std::vector<Network> networks;  // picker entries, at most MAX_NETWORKS
+  Network peer{};
+  PeerFirmware peerFirmware = PeerFirmware::Unknown;
   unsigned long connectStartedAt = 0;
   volatile uint32_t sentBytes = 0;
   volatile uint32_t totalBytes = 0;
@@ -28,10 +38,12 @@ class SendBookActivity final : public Activity {
   void setState(State next);
   void startScan();
   void collectScanResults(int count);
-  void connectTo(const PeerHotspot* hotspot);
+  void showPicker();
+  void choose(int index);
+  void connectTo(const char* password);
   void transfer(bool overwrite);
   void fail(const std::string& detail);
-  static const char* peerLabel(const PeerHotspot* hotspot);
+  const char* peerLabel() const;
 
  public:
   SendBookActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string path);

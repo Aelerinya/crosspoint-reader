@@ -7,11 +7,13 @@
 #include <Memory.h>
 #include <WiFi.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/RenderLock.h"
+#include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/TaskWatchdog.h"
@@ -20,6 +22,10 @@ namespace {
 
 constexpr unsigned long CONNECT_TIMEOUT_MS = 15000;
 constexpr size_t CHUNK_SIZE = 4096;
+// The picker popup does not scroll; this many rows fit on the X4 in every theme.
+constexpr size_t MAX_NETWORKS = 8;
+// Used when DHCP gave no gateway on a network that is not a default reader hotspot.
+constexpr const char* DEFAULT_PEER_HOST = "192.168.4.1";
 
 class WifiTransport final : public BookSendTransport {
   WiFiClient client;
@@ -88,9 +94,13 @@ void SendBookActivity::onExit() {
   }
 }
 
-const char* SendBookActivity::peerLabel(const PeerHotspot* hotspot) {
-  return hotspot && hotspot->firmware == PeerFirmware::Stock ? tr(STR_SEND_STOCK_READER)
-                                                             : tr(STR_SEND_CROSSPOINT_READER);
+const char* SendBookActivity::peerLabel() const {
+  const PeerFirmware firmware = peerFirmware != PeerFirmware::Unknown ? peerFirmware
+                                : peer.known                          ? peer.known->firmware
+                                                                      : PeerFirmware::Unknown;
+  if (firmware == PeerFirmware::Stock) return tr(STR_SEND_STOCK_READER);
+  if (firmware == PeerFirmware::CrossPoint) return tr(STR_SEND_CROSSPOINT_READER);
+  return peer.ssid.c_str();
 }
 
 void SendBookActivity::setState(const State next) {
@@ -102,7 +112,6 @@ void SendBookActivity::setState(const State next) {
 }
 
 void SendBookActivity::startScan() {
-  found[0] = found[1] = nullptr;
   setState(State::Scanning);
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
@@ -110,38 +119,84 @@ void SendBookActivity::startScan() {
 }
 
 void SendBookActivity::collectScanResults(const int count) {
-  int bestRssi[2] = {-1000, -1000};
+  networks.clear();
+  networks.reserve(std::min<size_t>(count, MAX_NETWORKS * 2));
   for (int i = 0; i < count; i++) {
-    const PeerHotspot* hotspot = findPeerHotspot(WiFi.SSID(i).c_str());
-    if (!hotspot) continue;
-    const int slot = hotspot->firmware == PeerFirmware::Stock ? 0 : 1;
-    if (WiFi.RSSI(i) > bestRssi[slot]) {
-      bestRssi[slot] = WiFi.RSSI(i);
-      found[slot] = hotspot;
+    std::string ssid = WiFi.SSID(i).c_str();
+    if (ssid.empty()) continue;  // hidden network
+    const int32_t rssi = WiFi.RSSI(i);
+    const bool encrypted = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+    auto it = std::find_if(networks.begin(), networks.end(), [&](const Network& n) { return n.ssid == ssid; });
+    if (it == networks.end()) {
+      const PeerHotspot* known = findPeerHotspot(ssid.c_str());
+      networks.push_back(Network{std::move(ssid), rssi, encrypted, known});
+    } else if (rssi > it->rssi) {
+      it->rssi = rssi;
+      it->encrypted = encrypted;
     }
   }
   WiFi.scanDelete();
 
-  if (found[0] && found[1]) {
-    {
-      RenderLock lock(*this);
-      static constexpr StrId OPTIONS[] = {StrId::STR_SEND_STOCK_READER, StrId::STR_SEND_CROSSPOINT_READER};
-      picker.show(StrId::STR_SEND_TO_READER, OPTIONS, 2, 0, [this](const int index) { connectTo(found[index]); });
-      state = State::Picking;
-    }
-    requestUpdate();
-  } else if (found[0] || found[1]) {
-    connectTo(found[0] ? found[0] : found[1]);
-  } else {
+  // Default reader hotspots first, then by signal strength.
+  std::stable_sort(networks.begin(), networks.end(), [](const Network& a, const Network& b) {
+    if ((a.known != nullptr) != (b.known != nullptr)) return a.known != nullptr;
+    return a.rssi > b.rssi;
+  });
+  if (networks.size() > MAX_NETWORKS) networks.resize(MAX_NETWORKS);
+
+  if (networks.empty()) {
     setState(State::NoneFound);
+  } else {
+    showPicker();
   }
 }
 
-void SendBookActivity::connectTo(const PeerHotspot* hotspot) {
-  peer = hotspot;
+void SendBookActivity::showPicker() {
+  std::vector<std::string> labels;
+  labels.reserve(networks.size());
+  for (const Network& n : networks) {
+    if (!n.known) {
+      labels.push_back(n.ssid);
+    } else {
+      labels.emplace_back(n.known->firmware == PeerFirmware::Stock ? tr(STR_SEND_STOCK_READER)
+                                                                   : tr(STR_SEND_CROSSPOINT_READER));
+    }
+  }
+  {
+    RenderLock lock(*this);
+    picker.show(StrId::STR_SEND_PICK_NETWORK, labels, 0, [this](const int index) { choose(index); });
+    state = State::Picking;
+  }
+  requestUpdate();
+}
+
+void SendBookActivity::choose(const int index) {
+  peer = networks[index];
+  peerFirmware = PeerFirmware::Unknown;
+  if (peer.known) {
+    connectTo(peer.known->password);
+    return;
+  }
+  if (!peer.encrypted) {
+    connectTo(nullptr);
+    return;
+  }
+  state = State::EnteringPassword;
+  startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_ENTER_WIFI_PASSWORD), "",
+                                                                 64, InputType::Text),
+                         [this](const ActivityResult& result) {
+                           if (result.isCancelled) {
+                             showPicker();
+                           } else {
+                             connectTo(std::get<KeyboardResult>(result.data).text.c_str());
+                           }
+                         });
+}
+
+void SendBookActivity::connectTo(const char* password) {
   connectStartedAt = millis();
-  LOG_DBG("SEND", "Joining %s", hotspot->ssid);
-  WiFi.begin(hotspot->ssid, hotspot->password);
+  LOG_DBG("SEND", "Joining %s", peer.ssid.c_str());
+  WiFi.begin(peer.ssid.c_str(), password);
   setState(State::Connecting);
 }
 
@@ -157,13 +212,22 @@ void SendBookActivity::fail(const std::string& detail) {
 
 void SendBookActivity::transfer(const bool overwrite) {
   const IPAddress gateway = WiFi.gatewayIP();
-  const std::string host = gateway == IPAddress() ? peer->fallbackHost : gateway.toString().c_str();
+  const std::string host = gateway != IPAddress() ? gateway.toString().c_str()
+                           : peer.known           ? peer.known->fallbackHost
+                                                  : DEFAULT_PEER_HOST;
 
-  // The hotspot name decides the protocol; the probe is logged to help diagnose odd receivers.
+  // The probe decides the protocol. A default hotspot name is the fallback for a
+  // receiver that does not answer the probe, as before.
   WifiTransport transport;
-  const PeerFirmware probed = BookSender::detect(transport, host.c_str());
-  if (probed != peer->firmware) {
-    LOG_ERR("SEND", "%s at %s probed as firmware %d", peer->ssid, host.c_str(), static_cast<int>(probed));
+  if (peerFirmware == PeerFirmware::Unknown) {
+    const PeerFirmware probed = BookSender::detect(transport, host.c_str());
+    LOG_DBG("SEND", "%s at %s probed as firmware %d", peer.ssid.c_str(), host.c_str(), static_cast<int>(probed));
+    peerFirmware = probed != PeerFirmware::Unknown ? probed : peer.known ? peer.known->firmware : PeerFirmware::Unknown;
+  }
+  if (peerFirmware == PeerFirmware::Unknown) {
+    WiFi.disconnect();
+    fail(tr(STR_SEND_ERR_NOT_READER));
+    return;
   }
 
   HalFile file;
@@ -180,7 +244,7 @@ void SendBookActivity::transfer(const bool overwrite) {
 
   BookSendRequest request;
   request.host = host.c_str();
-  request.firmware = peer->firmware;
+  request.firmware = peerFirmware;
   request.fileName = bookName.c_str();
   request.size = static_cast<uint32_t>(file.fileSize());
   request.overwrite = overwrite;
@@ -311,6 +375,7 @@ void SendBookActivity::render(RenderLock&&) {
   switch (state) {
     case State::Scanning:
     case State::Picking:
+    case State::EnteringPassword:
       renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_SEND_SEARCHING));
       break;
     case State::NoneFound:
@@ -322,15 +387,15 @@ void SendBookActivity::render(RenderLock&&) {
       confirmLabel = tr(STR_RETRY);
       break;
     case State::AskReplace:
-      renderer.drawCenteredText(UI_10_FONT_ID, y, peerLabel(peer));
+      renderer.drawCenteredText(UI_10_FONT_ID, y, peerLabel());
       break;
     case State::Connecting:
       renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_CONNECTING));
-      renderer.drawCenteredText(UI_10_FONT_ID, y + lineHeight * 2, peerLabel(peer));
+      renderer.drawCenteredText(UI_10_FONT_ID, y + lineHeight * 2, peerLabel());
       break;
     case State::Sending: {
       renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_SEND_SENDING));
-      renderer.drawCenteredText(UI_10_FONT_ID, y + lineHeight * 3 / 2, peerLabel(peer));
+      renderer.drawCenteredText(UI_10_FONT_ID, y + lineHeight * 3 / 2, peerLabel());
       GUI.drawProgressBar(renderer,
                           Rect{metrics.contentSidePadding, y + lineHeight * 3, textWidth, metrics.progressBarHeight},
                           sentBytes, totalBytes);
@@ -342,7 +407,7 @@ void SendBookActivity::render(RenderLock&&) {
     }
     case State::Done:
       renderer.drawCenteredText(UI_12_FONT_ID, y, tr(STR_SEND_DONE), true, EpdFontFamily::BOLD);
-      renderer.drawCenteredText(UI_10_FONT_ID, y + lineHeight * 2, peerLabel(peer));
+      renderer.drawCenteredText(UI_10_FONT_ID, y + lineHeight * 2, peerLabel());
       confirmLabel = tr(STR_DONE);
       break;
     case State::Failed: {
