@@ -17,8 +17,7 @@
 #include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraTheme.h"
 #include "components/themes/ThemeFonts.h"
-#include "components/themes/extra/ExtraThemes.h"
-#include "components/themes/extra/LastCallTheme.h"
+#include "components/themes/extra/DeckTheme.h"
 #include "components/themes/roundedraff/RoundedRaffTheme.h"
 
 UITheme UITheme::instance;
@@ -76,25 +75,9 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       currentTheme = std::make_unique<Lyra3CoversTheme>();
       currentMetrics = &Lyra3CoversMetrics::values;
       break;
-    case CrossPointSettings::UI_THEME::CYBERDECK:
-      currentTheme = std::make_unique<CyberdeckTheme>();
-      currentMetrics = &ExtraMetrics::cyberdeck;
-      break;
-    case CrossPointSettings::UI_THEME::NETRUNNER:
-      currentTheme = std::make_unique<NetrunnerTheme>();
-      currentMetrics = &ExtraMetrics::netrunner;
-      break;
-    case CrossPointSettings::UI_THEME::FOLIO:
-      currentTheme = std::make_unique<FolioTheme>();
-      currentMetrics = &ExtraMetrics::folio;
-      break;
-    case CrossPointSettings::UI_THEME::EXLIBRIS:
-      currentTheme = std::make_unique<ExLibrisTheme>();
-      currentMetrics = &ExtraMetrics::exlibris;
-      break;
-    case CrossPointSettings::UI_THEME::LASTCALL:
-      currentTheme = std::make_unique<LastCallTheme>();
-      currentMetrics = &ExtraMetrics::lastcall;
+    case CrossPointSettings::UI_THEME::DECK:
+      currentTheme = std::make_unique<DeckTheme>();
+      currentMetrics = &ExtraMetrics::deck;
       break;
     default:
       currentTheme = std::make_unique<BaseTheme>();

@@ -3,29 +3,17 @@
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #ifndef NO_THEME_FONTS
-#include <builtinFonts/cyberdeck_ui10_bold.h>
-#include <builtinFonts/cyberdeck_ui10_regular.h>
-#include <builtinFonts/cyberdeck_ui12_bold.h>
-#include <builtinFonts/cyberdeck_ui12_regular.h>
-#include <builtinFonts/cyberdeck_ui8_regular.h>
-#include <builtinFonts/exlibris_ui10_bold.h>
-#include <builtinFonts/exlibris_ui10_regular.h>
-#include <builtinFonts/exlibris_ui12_bold.h>
-#include <builtinFonts/exlibris_ui12_regular.h>
-#include <builtinFonts/exlibris_ui8_regular.h>
-#include <builtinFonts/folio_ui10_bold.h>
-#include <builtinFonts/lastcall_ui10_regular.h>
-#include <builtinFonts/lastcall_ui12_regular.h>
-#include <builtinFonts/lastcall_ui8_regular.h>
-#include <builtinFonts/folio_ui10_regular.h>
-#include <builtinFonts/folio_ui12_bold.h>
-#include <builtinFonts/folio_ui12_regular.h>
-#include <builtinFonts/folio_ui8_regular.h>
-#include <builtinFonts/netrunner_ui10_regular.h>
-#include <builtinFonts/netrunner_ui12_regular.h>
-#include <builtinFonts/netrunner_ui8_regular.h>
+#include <builtinFonts/deck_display_13.h>
+#include <builtinFonts/deck_display_22.h>
+#include <builtinFonts/deck_display_31.h>
+#include <builtinFonts/deck_ui10_bold.h>
+#include <builtinFonts/deck_ui10_regular.h>
+#include <builtinFonts/deck_ui12_bold.h>
+#include <builtinFonts/deck_ui12_regular.h>
+#include <builtinFonts/deck_ui8_regular.h>
 #endif
 
+#include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
 
 // Default UI families, defined in main.cpp.
@@ -52,18 +40,13 @@ struct FontSet {
 };
 
 #ifndef NO_THEME_FONTS
-FontSet cyberdeckFonts(&cyberdeck_ui10_regular, &cyberdeck_ui10_bold, &cyberdeck_ui12_regular, &cyberdeck_ui12_bold,
-                       &cyberdeck_ui8_regular);
-// Single-weight faces: bold slots reuse the regular data.
-FontSet netrunnerFonts(&netrunner_ui10_regular, &netrunner_ui10_regular, &netrunner_ui12_regular, &netrunner_ui12_regular,
-                       &netrunner_ui8_regular);
-FontSet folioFonts(&folio_ui10_regular, &folio_ui10_bold, &folio_ui12_regular, &folio_ui12_bold, &folio_ui8_regular);
-FontSet exlibrisFonts(&exlibris_ui10_regular, &exlibris_ui10_bold, &exlibris_ui12_regular, &exlibris_ui12_bold,
-                      &exlibris_ui8_regular);
+FontSet deckFonts(&deck_ui10_regular, &deck_ui10_bold, &deck_ui12_regular, &deck_ui12_bold, &deck_ui8_regular);
 
-FontSet lastcallFonts(&lastcall_ui10_regular, &lastcall_ui10_regular, &lastcall_ui12_regular, &lastcall_ui12_regular,
-                      &lastcall_ui8_regular);
-
+// Deck display face, one weight per size. Registered for every theme so the
+// Kitsune sleep screen can draw it.
+EpdFont deckDisplay13(&deck_display_13), deckDisplay22(&deck_display_22), deckDisplay31(&deck_display_31);
+EpdFontFamily deckDisplay13Family(13, &deckDisplay13), deckDisplay22Family(22, &deckDisplay22),
+    deckDisplay31Family(31, &deckDisplay31);
 #endif
 
 const FontSet* fontsFor(const CrossPointSettings::UI_THEME theme) {
@@ -72,16 +55,8 @@ const FontSet* fontsFor(const CrossPointSettings::UI_THEME theme) {
   return nullptr;
 #else
   switch (theme) {
-    case CrossPointSettings::CYBERDECK:
-      return &cyberdeckFonts;
-    case CrossPointSettings::NETRUNNER:
-      return &netrunnerFonts;
-    case CrossPointSettings::FOLIO:
-      return &folioFonts;
-    case CrossPointSettings::EXLIBRIS:
-      return &exlibrisFonts;
-    case CrossPointSettings::LASTCALL:
-      return &lastcallFonts;
+    case CrossPointSettings::DECK:
+      return &deckFonts;
     default:
       return nullptr;
   }
@@ -98,6 +73,12 @@ void applyThemeUiFonts(GfxRenderer& renderer, const CrossPointSettings::UI_THEME
   renderer.insertFont(UI_10_FONT_ID, set ? set->ui10 : ui10FontFamily);
   renderer.insertFont(UI_12_FONT_ID, set ? set->ui12 : ui12FontFamily);
   renderer.insertFont(SMALL_FONT_ID, set ? set->smallFamily : smallFontFamily);
+#ifndef NO_THEME_FONTS
+  for (const int size : {13, 22, 31}) renderer.removeFont(deck::displayFont(size));
+  renderer.insertFont(deck::displayFont(13), deckDisplay13Family);
+  renderer.insertFont(deck::displayFont(22), deckDisplay22Family);
+  renderer.insertFont(deck::displayFont(31), deckDisplay31Family);
+#endif
   if (FontCacheManager* cache = renderer.getFontCacheManager()) {
     cache->clearCache();
   }

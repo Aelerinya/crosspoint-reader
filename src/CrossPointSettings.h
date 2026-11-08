@@ -27,6 +27,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     QUICK_RESUME = 6,
     TRANSPARENT_CUSTOM = 7,
     COVER_TRANSPARENT = 8,
+    KITSUNE = 9,  // Deck sleep screen: STANDBY, sleeping fox, last book
     SLEEP_SCREEN_MODE_COUNT
   };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, SLEEP_SCREEN_COVER_MODE_COUNT };
@@ -208,11 +209,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     LYRA_3_COVERS = 2,
     ROUNDEDRAFF = 3,
     COVER_GRID = 4,
-    CYBERDECK = 5,
-    NETRUNNER = 6,
-    FOLIO = 7,
-    EXLIBRIS = 8,
-    LASTCALL = 9
+    DECK = 5
   };
 
   // Image rendering in EPUB reader. IMAGES_DISPLAY_BW lays images out like

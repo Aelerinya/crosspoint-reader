@@ -1,5 +1,5 @@
 #!/bin/bash
-# UI font sets for the extra themes (Cyberdeck, Netrunner, Folio, Ex Libris).
+# UI font sets for the custom themes (Deck).
 # Each theme swaps these into the UI_10 / UI_12 / SMALL font slots, so every
 # screen (lists, headers, popups) uses the theme's face. Missing glyphs come
 # from Ubuntu / Noto Sans (Latin ext, Greek, Cyrillic) and DejaVu (symbols).
@@ -22,11 +22,7 @@ EXTRA=(
 
 # name  regular-file  bold-file  ui10-size  ui12-size  small-size
 THEMES=(
-  "cyberdeck JetBrainsMono/JetBrainsMono-Regular.ttf JetBrainsMono/JetBrainsMono-Bold.ttf 10 12 8"
-  "netrunner ShareTechMono/ShareTechMono-Regular.ttf ShareTechMono/ShareTechMono-Regular.ttf 11 13 9"
-  "folio EBGaramond/EBGaramond12-Regular.ttf EBGaramond/EBGaramond12-Bold.ttf 12 14 10"
-  "exlibris Libertine/LinLibertine_R.otf Libertine/LinLibertine_RB.otf 11 13 9"
-  "lastcall VT323/VT323-Regular.ttf VT323/VT323-Regular.ttf 16 20 14"
+  "deck ChakraPetch/ChakraPetch-Medium.ttf ChakraPetch/ChakraPetch-Bold.ttf 11 13 9"
 )
 
 want="$*"
@@ -44,3 +40,14 @@ for row in "${THEMES[@]}"; do
     echo "Generated $OUT/$font_name.h"
   done
 done
+
+# Deck display faces (titles, big words): uppercase-only drawing, single weight.
+if [[ -z "$want" || " $want " == *" deck "* ]]; then
+  SAIRA=$SRC/SairaExtraCondensed/SairaExtraCondensed-ExtraBold.ttf
+  for size in 13 22; do
+    FONTCONVERT_LEAN=1 $PY fontconvert.py deck_display_$size $size "$SAIRA" $SRC/Ubuntu/Ubuntu-Bold.ttf \
+      --2bit --compress > "$OUT/deck_display_$size.h"
+  done
+  FONTCONVERT_UPPER=1 $PY fontconvert.py deck_display_31 31 "$SAIRA" --2bit --compress > "$OUT/deck_display_31.h"
+  echo "Generated deck display fonts"
+fi

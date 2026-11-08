@@ -251,11 +251,9 @@ inline SettingInfo buildShortPowerButtonSetting() {
 
 inline std::vector<StrId> homeThemeValues() {
   // Indexes are the UI_THEME values. Without PSRAM, Cover Grid falls back to Lyra in UITheme::setTheme().
-  static constexpr StrId VALUES[] = {StrId::STR_THEME_CLASSIC,   StrId::STR_THEME_LYRA,
+  static constexpr StrId VALUES[] = {StrId::STR_THEME_CLASSIC,      StrId::STR_THEME_LYRA,
                                      StrId::STR_THEME_LYRA_EXTENDED, StrId::STR_THEME_ROUNDEDRAFF,
-                                     StrId::STR_THEME_COVER_GRID, StrId::STR_THEME_CYBERDECK,
-                                     StrId::STR_THEME_NETRUNNER,  StrId::STR_THEME_FOLIO,
-                                     StrId::STR_THEME_EXLIBRIS,   StrId::STR_THEME_LASTCALL};
+                                     StrId::STR_THEME_COVER_GRID,    StrId::STR_THEME_DECK};
   const size_t count = std::size(VALUES);
   return {VALUES, VALUES + count};
 }

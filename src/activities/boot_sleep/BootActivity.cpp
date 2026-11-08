@@ -3,6 +3,8 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include "CrossPointSettings.h"
+#include "components/themes/extra/DeckScreens.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
 
@@ -11,6 +13,12 @@ void BootActivity::onEnter() {
 
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
+
+  if (SETTINGS.uiTheme == CrossPointSettings::DECK) {
+    deck::drawWakingScreen(renderer, tr(STR_BOOTING));
+    renderer.displayBuffer();
+    return;
+  }
 
   renderer.clearScreen();
   renderer.drawImage(Logo120, (pageWidth - 120) / 2, (pageHeight - 120) / 2, 120, 120);

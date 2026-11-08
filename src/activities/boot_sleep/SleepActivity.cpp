@@ -27,6 +27,7 @@
 #include "CrossPointState.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckScreens.h"
 #include "fontIds.h"
 #include "images/Logo120.h"
 #include "images/MoonIcon.h"
@@ -737,6 +738,9 @@ void SleepActivity::onEnter() {
   }
 
   switch (SETTINGS.sleepScreen) {
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::KITSUNE):
+      deck::drawKitsuneSleepScreen(renderer);
+      return renderer.displayBuffer(kSleepClean);
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
       return renderBlankSleepScreen();
     case (CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM):
