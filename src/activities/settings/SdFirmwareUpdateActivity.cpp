@@ -11,6 +11,8 @@
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckScreens.h"
 #include "fontIds.h"
 #include "network/FirmwareFlasher.h"
 
@@ -230,6 +232,11 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
       return;
     }
     lastRenderedPercent = pct;
+    if (deck::listsActive()) {
+      deck::drawFlashingScreen(renderer, static_cast<int>(pct));
+      renderer.displayBuffer();
+      return;
+    }
 
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATING), true, EpdFontFamily::BOLD);
 

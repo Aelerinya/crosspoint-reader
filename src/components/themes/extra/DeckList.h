@@ -19,6 +19,8 @@ enum class ListStyle : uint8_t {
   Display,  // TOC / library: small kicker + display-face title, inverted selection
   Cards,    // transfer / bookmarks: chamfered outlined cards, display-face label
   Books,    // library: display-face title over a small author line, right value
+  Library,  // v2 library: 84 px rows, cover cell, title + author, slanted end block
+  Files,    // v2 files: 50 px rows, folder/file glyph, name, extension tag, dashed rule
 };
 
 struct Row {
@@ -29,6 +31,8 @@ struct Row {
   bool hasToggle = false;
   bool toggleOn = false;
   bool isHeader = false;  // group heading row (not selectable)
+  std::string coverPath;  // Library rows: cover thumbnail BMP (74 px tall)
+  bool folder = false;    // Files rows
   std::string heading;    // section heading drawn above the row
 };
 

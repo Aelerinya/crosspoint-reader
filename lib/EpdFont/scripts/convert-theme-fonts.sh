@@ -51,10 +51,12 @@ if [[ -z "$want" || " $want " == *" deck "* ]]; then
   # Upper-case only: ASCII digits/A-Z/punctuation, Latin-1 capitals, ellipsis.
   FONTCONVERT_INTERVALS=0x20-0x5F,0xC0-0xDE,0x2026-0x2026 $PY fontconvert.py deck_display_31 31 "$SAIRA" \
     $SRC/Ubuntu/Ubuntu-Bold.ttf --2bit --compress > "$OUT/deck_display_31.h"
+  FONTCONVERT_INTERVALS=0x20-0x5F,0xC0-0xDE $PY fontconvert.py deck_display_17 17 "$SAIRA" \
+    $SRC/Ubuntu/Ubuntu-Bold.ttf --2bit --compress > "$OUT/deck_display_17.h"
   FONTCONVERT_INTERVALS=0x20-0x5F $PY fontconvert.py deck_display_46 46 "$SAIRA" --2bit --compress \
     > "$OUT/deck_display_46.h"
-  # Digits and % for the Go to % screen.
-  FONTCONVERT_INTERVALS=0x25-0x25,0x30-0x39 $PY fontconvert.py deck_display_76 76 "$SAIRA" --2bit --compress \
+  # Go to % number and WAKING: ASCII capitals, digits, %.
+  FONTCONVERT_INTERVALS=0x20-0x5F $PY fontconvert.py deck_display_76 76 "$SAIRA" --2bit --compress \
     > "$OUT/deck_display_76.h"
   # Kana/kanji tags (ホーム 書庫 …): Noto Sans JP Bold cut down to the design's characters.
   FONTCONVERT_INTERVALS=0x20-0x20,0x7C-0x7C,0x3040-0x30FF,0x4E00-0x9FFF $PY fontconvert.py deck_kana 7 \

@@ -18,11 +18,13 @@ class EpubReaderPercentSelectionActivity final : public Activity, private UiAppH
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  // Deck theme: names the chapter a percent lands in (the "lands in" card).
-  void setLandsIn(std::function<std::string(int percent)> fn) { landsIn = std::move(fn); }
+  // Deck theme: the TOC title `offset` entries from the chapter a percent lands in
+  // (-1, 0, +1 for the chapter list under the bar); empty when there is none.
+  void setLandsIn(std::function<std::string(int percent, int offset)> fn) { landsIn = std::move(fn); }
 
  private:
-  std::function<std::string(int)> landsIn;
+  std::function<std::string(int, int)> landsIn;
+  int nowPercent = 0;
   void renderDeck();
   // The UiAppHost app hosts the shared slider dialog popup (capsule slider,
   // [-] [+] [Confirm] buttons) drawn over the screen underneath.

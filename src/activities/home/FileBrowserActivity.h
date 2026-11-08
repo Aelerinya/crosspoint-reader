@@ -65,6 +65,8 @@ class FileBrowserActivity final : public UiListActivity {
   // Header shows the current folder name (battery indicator via GUI.drawHeader);
   // footer labels depend on path depth and picker mode.
   void drawChrome() override;
+  void deckListSpec(deck::ListSpec& spec) override { spec.style = deck::ListStyle::Files; }
+  void deckRowExtra(int index, deck::Row& row) override;
   void drawFooter() override;
   void activateSelected();
 

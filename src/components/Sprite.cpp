@@ -4,16 +4,17 @@
 
 namespace {
 
+// Calls span(row, col, len) for every "on" run of one layer.
 template <typename Span>
-void forEachInkSpan(const Sprite& s, Span span) {
+void forEachSpan(const Sprite& s, const uint8_t* runs, const size_t size, Span span) {
   size_t i = 0;
   long pos = 0;
   const long total = static_cast<long>(s.width) * s.height;
   bool ink = false;
-  while (i < s.size && pos < total) {
+  while (i < size && pos < total) {
     long run = 0;
-    while (i < s.size) {
-      const uint8_t b = s.runs[i++];
+    while (i < size) {
+      const uint8_t b = runs[i++];
       run += b;
       if (b != 255) break;
     }
@@ -38,12 +39,20 @@ void forEachInkSpan(const Sprite& s, Span span) {
 }  // namespace
 
 void drawSprite(const GfxRenderer& renderer, const Sprite& sprite, const int x, const int y, const bool black) {
-  forEachInkSpan(sprite, [&](int row, int col, int len) { renderer.fillRect(x + col, y + row, len, 1, black); });
+  if (sprite.halo) {
+    forEachSpan(sprite, sprite.halo, sprite.haloSize,
+                [&](int row, int col, int len) { renderer.fillRect(x + col, y + row, len, 1, !black); });
+  }
+  forEachSpan(sprite, sprite.runs, sprite.size,
+              [&](int row, int col, int len) { renderer.fillRect(x + col, y + row, len, 1, black); });
 }
 
-void drawSpriteMirrored(const GfxRenderer& renderer, const Sprite& sprite, const int x, const int y,
-                        const bool black) {
-  forEachInkSpan(sprite, [&](int row, int col, int len) {
-    renderer.fillRect(x + sprite.width - col - len, y + row, len, 1, black);
-  });
+void drawSpriteMirrored(const GfxRenderer& renderer, const Sprite& sprite, const int x, const int y, const bool black) {
+  const auto mirror = [&](const bool state) {
+    return [&, state](int row, int col, int len) {
+      renderer.fillRect(x + sprite.width - col - len, y + row, len, 1, state);
+    };
+  };
+  if (sprite.halo) forEachSpan(sprite, sprite.halo, sprite.haloSize, mirror(!black));
+  forEachSpan(sprite, sprite.runs, sprite.size, mirror(black));
 }

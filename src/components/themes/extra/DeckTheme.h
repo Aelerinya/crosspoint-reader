@@ -34,9 +34,9 @@ constexpr ThemeMetrics deck = [] {
   m.homeTopPadding = 62;
   m.homeContinueReadingInMenu = false;  // the hero card is the resume target
   m.homeRecentBooksCount = 1;
-  m.homeCoverHeight = 182;  // thumb height in the hero card
-  m.homeCoverTileHeight = 280;
-  m.homeMenuTopOffset = 14;
+  m.homeCoverHeight = 733;      // thumb height: wide enough (0.6 x 733) to fill the 434 px hero card
+  m.homeCoverTileHeight = 340;  // RESUME stripe + 314 px card
+  m.homeMenuTopOffset = 16;
   m.buttonHintsHeight = 54;
   m.tabPillFullSlot = true;
   m.popupFrameThickness = 3;
@@ -70,6 +70,7 @@ class DeckTheme : public ExtraThemeBase {
   void drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                        const char* btn4) const override;
   int getMenuRowHeight(const GfxRenderer& renderer) const override;
+  bool showsFileIcons() const override { return true; }  // no "[folder]" brackets
   // Toast: black parallelogram, bottom centre above the key bar.
   Rect drawPopup(const GfxRenderer& renderer, const char* message) const override;
   void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, int progress) const override;
@@ -91,8 +92,13 @@ class DeckTheme : public ExtraThemeBase {
 namespace deck {
 // Display face (Saira Extra Condensed ExtraBold). Registered whatever the
 // theme, so the Kitsune sleep screen works with any theme.
-// 13, 22 (Latin), 31 (capitals incl. Latin-1), 46 (ASCII capitals), 76 (digits and % only).
+// 13, 22 (Latin), 17, 31 (capitals incl. Latin-1), 46, 76 (ASCII capitals).
 int displayFont(int size);
+// v2 compact header (design "generated" screens): small black tab with the
+// label (+ kana) at top 12, a rule, clock and battery cells. Returns its bottom.
+int drawSmallHeader(const GfxRenderer& r, const char* label, const char* right = nullptr);
+// Companion art (Operator) on: SETTINGS.deckCompanion.
+bool companionOn();
 // Small Japanese tags (ホーム 書庫 目次 …): the font and the tag for a screen
 // name (English UI labels only; nullptr when there is none).
 int kanaFont();

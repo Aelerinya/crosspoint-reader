@@ -1,11 +1,13 @@
 #include "DeckTheme.h"
 
+#include <Bitmap.h>
 #include <BoardConfig.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
+#include <HalStorage.h>
 #include <I18n.h>
 
 #include <algorithm>
@@ -18,7 +20,7 @@
 #include "components/UITheme.h"
 #include "components/themes/extra/DeckList.h"
 #include "fontIds.h"
-#include "images/DeckFox.h"
+#include "images/DeckOperator.h"
 #include "util/BookProgress.h"
 
 // ================================================================ primitives
@@ -28,6 +30,7 @@ namespace deck {
 // Arbitrary non-zero IDs; registered in ThemeFonts.cpp.
 constexpr int kDisplay13 = 0x0DEC0013;
 constexpr int kDisplay22 = 0x0DEC0022;
+constexpr int kDisplay17 = 0x0DEC0017;
 constexpr int kDisplay31 = 0x0DEC0031;
 constexpr int kDisplay46 = 0x0DEC0046;
 constexpr int kDisplay76 = 0x0DEC0076;
@@ -37,6 +40,7 @@ int displayFont(const int size) {
   if (size >= 46) return kDisplay46;
   if (size >= 31) return kDisplay31;
   if (size >= 22) return kDisplay22;
+  if (size >= 17) return kDisplay17;
   return kDisplay13;
 }
 
@@ -47,14 +51,32 @@ const char* kanaFor(const std::string& label) {
     const char* label;
     const char* kana;
   } kTags[] = {
-      {"HOME", "ホーム"},        {"LIBRARY", "書庫"},  {"SELECT CHAPTER", "目次"},
-      {"INDEX", "目次"},         {"BOOKMARKS", "栞"},  {"GO TO", "移動"},
-      {"FILE TRANSFER", "転送"}, {"TRANSFER", "転送"}, {"HOTSPOT MODE", "転送"},
-      {"SETTINGS", "設定"},      {"DISPLAY", "設定"},  {"READER", "設定"},
-      {"CONTROLS", "設定"},      {"SYSTEM", "設定"},   {"CONNECTIVITY", "設定"},
-      {"SD CARD", "書庫"},       {"READ", "読書"},     {"FILES", "書庫"},
-      {"ONLINE", "接続"},        {"CLEAR", "完了"},    {"OPEN", "開く"},
-      {"SLEEP", "眠"},           {"WAKE", "起"},
+      {"HOME", "ホーム"},
+      {"LIBRARY", "書庫"},
+      {"SELECT CHAPTER", "目次"},
+      {"INDEX", "目次"},
+      {"BOOKMARKS", "栞"},
+      {"GO TO", "移動"},
+      {"FILE TRANSFER", "転送"},
+      {"TRANSFER", "転送"},
+      {"HOTSPOT MODE", "転送"},
+      {"SETTINGS", "設定"},
+      {"DISPLAY", "設定"},
+      {"READER", "設定"},
+      {"CONTROLS", "設定"},
+      {"SYSTEM", "設定"},
+      {"CONNECTIVITY", "設定"},
+      {"SD CARD", "ファイル"},
+      {"READ", "読書"},
+      {"FILES", "ファイル"},
+      {"ONLINE", "接続"},
+      {"CLEAR", "完了"},
+      {"OPEN", "開く"},
+      {"SLEEP", "スタンバイ"},
+      {"WAKE", "起"},
+      {"USB", "接続"},
+      {"USB DRIVE", "接続"},
+      {"FIRMWARE UPDATE", "更新"},
   };
   for (const auto& t : kTags) {
     if (label == t.label) return t.kana;
@@ -259,7 +281,6 @@ bool hintGrayPass(const GfxRenderer& renderer) {
 
 // Hero card geometry inside the home tile, shared by the tile and the
 // selection outline drawn later by drawButtonMenu.
-Rect heroCard(const Rect& tile) { return Rect{tile.x + kSide, tile.y + 22, tile.width - 2 * kSide, tile.height - 22}; }
 
 Rect homeTileRect(const GfxRenderer& renderer) {
   const auto& m = ExtraMetrics::deck;
@@ -268,6 +289,10 @@ Rect homeTileRect(const GfxRenderer& renderer) {
 }
 
 }  // namespace
+
+namespace {
+std::string homeLabel(const std::string& label);
+}
 
 void DeckTheme::drawHeader(const GfxRenderer& renderer, const Rect rect, const char* title, const char* subtitle,
                            const bool backButton) const {
@@ -278,7 +303,7 @@ void DeckTheme::drawHeader(const GfxRenderer& renderer, const Rect rect, const c
   const int y = rect.y;
   // Home is the stack root and passes the book title; the tab names the screen.
   const bool home = !backButton && rect.y + rect.height == m.homeTopPadding;
-  const std::string label = deck::upper(home || !title ? std::string("HOME") : std::string(title));
+  const std::string label = homeLabel(home || !title ? std::string("HOME") : std::string(title));
 
   // Status block (right): fox head, clock, battery cells, over a rule.
   const int lineY = y + kTabH - 2;
@@ -293,10 +318,6 @@ void DeckTheme::drawHeader(const GfxRenderer& renderer, const Rect rect, const c
     statusX -= cw + 8;
     deck::drawTracked(renderer, UI_10_FONT_ID, statusX, lineY - 6 - renderer.getLineHeight(UI_10_FONT_ID) + 4, clock, 1,
                       true, true);
-  }
-  if (SETTINGS.deckCompanion) {
-    statusX -= kFoxHead.width + 8;
-    drawSprite(renderer, kFoxHead, statusX, lineY - 4 - kFoxHead.height);
   }
   statusX -= 6;
 
@@ -329,6 +350,73 @@ void DeckTheme::drawHeader(const GfxRenderer& renderer, const Rect rect, const c
   }
 }
 
+// ---------------------------------------------------------------- Home (v2 cover layout)
+
+namespace {
+constexpr int kCardY = 88;   // under the "// RESUME" stripe
+constexpr int kCardH = 314;  // 304 px cover + 5 px padding
+constexpr int kCardPad = 5;
+constexpr int kOpX = 480 - 6 - 135;  // Operator pose: right 6, top 252
+constexpr int kOpY = 252;
+
+Rect coverRect(const Rect& tile) {
+  return Rect{tile.x + kSide + kCardPad, kCardY + kCardPad, tile.width - 2 * kSide - 2 * kCardPad,
+              kCardH - 2 * kCardPad};
+}
+
+// "▶ OPEN" box in the cover's top-right corner (drawn black in the tile, its text when selected).
+Rect openMarkRect(const GfxRenderer& r, const Rect& cover) {
+  const int w = deck::trackedWidth(r, SMALL_FONT_ID, "OPEN", 2, true) + 30;
+  const int h = r.getLineHeight(SMALL_FONT_ID) + 6;
+  return Rect{cover.x + cover.width - 14 - w, cover.y + 14, w, h};
+}
+
+// Home menu labels as the design names them.
+std::string homeLabel(const std::string& label) {
+  const std::string up = deck::upper(label);
+  if (up == "BROWSE FILES") return "FILES";
+  if (up == "FILE TRANSFER") return "TRANSFER";
+  return up;
+}
+}  // namespace
+
+bool deck::companionOn() { return SETTINGS.deckCompanion != 0; }
+
+int deck::drawSmallHeader(const GfxRenderer& r, const char* label, const char* right) {
+  constexpr int kX = 16, kY = 12, kH = 26;
+  const int W = r.getScreenWidth();
+  const int font = SMALL_FONT_ID;
+  const std::string up = upper(label ? label : "");
+  const char* kana = kanaFor(up);
+  const int tw = trackedWidth(r, font, up.c_str(), 2, true);
+  const int kw = kana ? r.getTextWidth(kanaFont(), kana) + 6 : 0;
+  const int tabW = 10 + tw + kw + 22;
+  const int xs[] = {kX, kX + tabW, kX + tabW - 10, kX};
+  const int ys[] = {kY, kY, kY + kH, kY + kH};
+  r.fillPolygon(xs, ys, 4, true);
+  const int ty = kY + (kH - r.getLineHeight(font)) / 2;
+  drawTracked(r, font, kX + 10, ty, up.c_str(), 2, false, true);
+  if (kana) r.drawText(kanaFont(), kX + 10 + tw + 6, kY + (kH - r.getLineHeight(kanaFont())) / 2, kana, false);
+  // Right side: battery cells, then clock (or the caller's text).
+  int rx = W - kX;
+  const int percent = std::min<int>(100, powerManager.getBatteryPercentage());
+  rx -= 4 * 8 + 2;
+  batteryCells(r, rx, kY + kH - 16, percent);
+  rx -= 10;
+  char clock[10];
+  const char* rt = right;
+  if (!rt && halClock.isAvailable() && halClock.formatTime(clock, sizeof(clock), SETTINGS.clockFormat == 1)) rt = clock;
+  if (rt) {
+    const int w = trackedWidth(r, font, rt, 1, true);
+    rx -= w;
+    drawTracked(r, font, rx, kY + kH - 4 - r.getLineHeight(font), rt, 1, true, true);
+    rx -= 10;
+  }
+  const int ruleX = kX + tabW + 2;
+  if (rx > ruleX) r.fillRect(ruleX, kY + kH - 5, rx - ruleX, 2, true);
+  return kY + kH;
+}
+
 void DeckTheme::drawHomeTile(GfxRenderer& renderer, const Rect rect, const RecentBook* book) const {
   const auto& m = ExtraMetrics::deck;
   const int x = rect.x + kSide;
@@ -347,46 +435,59 @@ void DeckTheme::drawHomeTile(GfxRenderer& renderer, const Rect rect, const Recen
   if (pct[0]) deck::drawTracked(renderer, SMALL_FONT_ID, x + w - pctW, rect.y, pct, 2, true, true);
   deck::hatch(renderer, x + kickW + 10, rect.y + (labelH - 10) / 2, w - kickW - pctW - 20, 10);
 
-  const Rect card = heroCard(rect);
-  deck::fillChamfer(renderer, card.x, card.y, card.width, card.height, 24);
-  const int padX = 18;
-  const int padY = 16;
-  const int coverW = 118;
-  const int coverH = m.homeCoverHeight;
-  const int coverX = card.x + padX;
-  const int coverY = card.y + padY;
-
-  // Covers only ink their dark levels: clear the slot to white first, or the
-  // black card shows through the cover's whites (a negative-looking cover).
-  renderer.fillRect(coverX, coverY, coverW, coverH, false);
-  int drawn = 0;
-  if (book) drawn = drawCoverInSlot(renderer, *book, Rect{coverX, coverY, coverW, coverH}, m.homeCoverHeight);
-  if (drawn > 0 && drawn < coverW) {
-    // Narrow cover: give the unused sides of the slot back to the card.
-    const int side = (coverW - drawn) / 2;
-    renderer.fillRect(coverX, coverY, side, coverH, true);
-    renderer.fillRect(coverX + side + drawn, coverY, coverW - side - drawn, coverH, true);
+  // Card: black, chamfered; the cover fills it, a notched title band at the bottom.
+  deck::fillChamfer(renderer, x, kCardY, w, kCardH, 24);
+  const Rect cover = coverRect(rect);
+  renderer.fillRect(cover.x, cover.y, cover.width, cover.height, false);
+  bool drawnCover = false;
+  if (book && !book->coverBmpPath.empty()) {
+    const std::string path = UITheme::getCoverThumbPath(book->coverBmpPath, m.homeCoverHeight);
+    HalFile file;
+    if (Storage.openFileForRead("HOME", path, file)) {
+      Bitmap bitmap(file);
+      if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+        // Show the top part (object-position 22%): faces and titles sit high on covers.
+        const int extra = bitmap.getHeight() - cover.height;
+        const int centered = extra / 2;
+        const int wanted = extra * 22 / 100;
+        drawnCover = drawCoverThumbFill(renderer, bitmap, cover, 0, path, centered - wanted);
+      }
+      file.close();
+    }
   }
-  if (drawn == 0) {
-    deck::hatch(renderer, coverX + 6, coverY + 6, coverW - 12, coverH - 12);
+  if (!drawnCover) deck::hatch(renderer, cover.x + 8, cover.y + 8, cover.width - 16, cover.height - 16);
+
+  // Open mark box (black; its text is drawn with the selection).
+  const Rect mark = openMarkRect(renderer, cover);
+  renderer.fillRect(mark.x, mark.y, mark.width, mark.height, true);
+  excludeFromGrayCovers(mark.x, mark.y, mark.width, mark.height);
+
+  // Title band.
+  const int titleSize = 22;
+  const int font = deck::displayFont(titleSize);
+  const std::string title = book ? book->title : std::string(tr(STR_NO_OPEN_BOOK));
+  bool cut = false;
+  auto lines = deck::wrapDisplay(renderer, font, title, 250, 2, &cut);
+  const int step = deck::displayLineStep(titleSize);
+  const int cap = titleSize * 150 * 70 / 7200;
+  const int tagH = labelH + 4;
+  const int bandH = 30 + (static_cast<int>(lines.size()) - 1) * step + cap + 8 + tagH + 10 + 10 + 14;
+  const int bottom = cover.y + cover.height;
+  const int top = bottom - bandH;
+  const int notchX = cover.x + cover.width * 52 / 100;
+  const int bx[] = {cover.x, notchX, notchX + 22, cover.x + cover.width, cover.x + cover.width, cover.x};
+  const int by[] = {top + 22, top + 22, top, top, bottom, bottom};
+  renderer.fillPolygon(bx, by, 6, true);
+  excludeFromGrayCovers(cover.x, top + 22, cover.width, bandH - 22);
+  excludeFromGrayCovers(notchX, top, cover.x + cover.width - notchX, 22);
+  int ty = top + 30;
+  for (const auto& l : lines) {
+    renderer.drawText(font, cover.x + 18, ty - deck::displayCapOffset(renderer, titleSize), l.c_str(), false);
+    ty += step;
   }
-  // 2 px white frame around the cover slot (covers narrower than the slot are centred in it).
-  const int frameX = drawn ? coverX + (coverW - drawn) / 2 : coverX;
-  const int frameW = drawn ? drawn : coverW;
-  renderer.drawRect(frameX - 2, coverY - 2, frameW + 4, coverH + 4, 2, false);
-
-  const int colX = coverX + coverW + 16;
-  const int colW = card.x + card.width - padX - colX;
-  int ty = coverY;
-  const std::string author = book ? deck::upper(book->author) : std::string("CROSSPOINT");
-  // Leaves room for the selection mark drawn by drawButtonMenu.
-  const std::string a = renderer.truncatedText(SMALL_FONT_ID, author.c_str(), colW - 26, EpdFontFamily::BOLD);
-  deck::drawTracked(renderer, SMALL_FONT_ID, colX, ty, a.c_str(), 2, false, true);
-  ty += labelH + 6;
-
-  // Current chapter at the bottom of the column: "Chapter 1: Supply" ->
-  // slanted tag "CHAPTER 1" over "SUPPLY"; a chapter without a prefix is just the name.
-  int columnBottom = coverY + coverH;
+  ty += cap - step + 8;
+  // Chapter: slanted outlined tag + name.
+  int cx = cover.x + 18;
   if (!chapter.empty()) {
     std::string tag, name = chapter;
     const size_t colon = chapter.find(": ");
@@ -394,48 +495,20 @@ void DeckTheme::drawHomeTile(GfxRenderer& renderer, const Rect rect, const Recen
       tag = chapter.substr(0, colon);
       name = chapter.substr(colon + 2);
     }
-    const int nameFont = UI_10_FONT_ID;
-    const int nameH = renderer.getLineHeight(nameFont);
-    const std::string n = renderer.truncatedText(nameFont, deck::upper(name).c_str(), colW, EpdFontFamily::BOLD);
-    const int nameY = columnBottom - nameH;
-    deck::drawTracked(renderer, nameFont, colX, nameY, n.c_str(), 1, false, true);
-    columnBottom = nameY - 4;
     if (!tag.empty()) {
-      const std::string t =
-          renderer.truncatedText(SMALL_FONT_ID, deck::upper(tag).c_str(), colW - 24, EpdFontFamily::BOLD);
-      const int tagH = labelH + 4;
-      const int tagW = deck::trackedWidth(renderer, SMALL_FONT_ID, t.c_str(), 1, true) + 20;
-      const int tagY = columnBottom - tagH;
-      deck::drawSlant(renderer, colX, tagY, tagW, tagH, 2, false);
-      deck::drawTracked(renderer, SMALL_FONT_ID, colX + 10, tagY + 2, t.c_str(), 1, false, true);
-      columnBottom = tagY;
+      const std::string t = renderer.truncatedText(SMALL_FONT_ID, deck::upper(tag).c_str(), 140, EpdFontFamily::BOLD);
+      const int tw = deck::trackedWidth(renderer, SMALL_FONT_ID, t.c_str(), 1, true) + 20;
+      deck::drawSlant(renderer, cx, ty, tw, tagH, 2, false);
+      deck::drawTracked(renderer, SMALL_FONT_ID, cx + 10, ty + 2, t.c_str(), 1, false, true);
+      cx += tw + 10;
     }
-    columnBottom -= 8;
+    const std::string n = renderer.truncatedText(SMALL_FONT_ID, deck::upper(name).c_str(),
+                                                 cover.x + cover.width - 18 - cx, EpdFontFamily::BOLD);
+    deck::drawTracked(renderer, SMALL_FONT_ID, cx, ty + 2, n.c_str(), 1, false, true);
   }
-
-  // Title: big display face if it fits above the chapter, else the small one.
-  const std::string title = book ? book->title : std::string(tr(STR_NO_OPEN_BOOK));
-  const int titleTop = ty + 4;
-  for (const int size : {22, 13}) {
-    const int fontId = deck::displayFont(size);
-    const int lh = deck::displayLineStep(size);
-    const int capH = size * 150 * 70 / (72 * 100);
-    const int maxLines = std::max(1, (columnBottom - titleTop - capH) / lh + 1);
-    bool cut = false;
-    const auto lines = deck::wrapDisplay(renderer, fontId, title, colW, maxLines, &cut);
-    if (cut && size != 13) continue;  // try the small face before losing words
-    int y = titleTop - deck::displayCapOffset(renderer, size);
-    for (const auto& l : lines) {
-      renderer.drawText(fontId, colX, y, l.c_str(), false);
-      y += lh;
-    }
-    break;
-  }
-
-  // Ten slanted progress segments under the cover.
-  const int segY = coverY + coverH + 14;
+  ty += tagH + 10;
   const int filled = progress < 0 ? 0 : std::max(1, (progress + 5) / 10);
-  deck::segments(renderer, card.x + padX, segY, card.width - 2 * padX, 12, 10, filled, false);
+  deck::segments(renderer, cover.x + 18, ty, 290, 10, 10, filled, false);
 }
 
 int DeckTheme::getMenuRowHeight(const GfxRenderer& renderer) const {
@@ -448,54 +521,61 @@ void DeckTheme::drawButtonMenu(GfxRenderer& renderer, const Rect rect, const int
   const auto& m = ExtraMetrics::deck;
   const int x = rect.x + kSide;
   const int fullW = rect.width - 2 * kSide;
-  const int rowH = getMenuRowHeight(renderer);
-  const int step = rowH + m.menuSpacing;
-  const int font = deck::displayFont(13);
-  const int lineH = renderer.getLineHeight(font);
+  const Rect tile = homeTileRect(renderer);
+  const Rect cover = coverRect(tile);
 
-  // Hero card selected (the recent book is index -1 here): white inner outline.
+  // Hero card selected (the recent book is index -1 here): white line in the
+  // card's padding (outside the cover's gray area) and the OPEN mark.
   if (selectedIndex < 0) {
-    const Rect card = heroCard(homeTileRect(renderer));
-    // A 2 px ring 7 px inside the card edge; the cover sits 18 px inside, clear of it.
-    const int x0 = card.x + 7, y0 = card.y + 7, x1 = card.x + card.width - 8, y1 = card.y + card.height - 8;
-    const int c = 21;
-    const int xs[] = {x0 + c, x1, x1, x1 - c, x0, x0};
-    const int ys[] = {y0, y0, y1 - c, y1, y1, y0 + c};
-    for (int k = 0; k < 6; ++k) renderer.drawLine(xs[k], ys[k], xs[(k + 1) % 6], ys[(k + 1) % 6], 2, false);
-    // ▶ in the top-right corner (the tile keeps that spot clear).
-    const int mx = card.x + card.width - 34;
-    const int my = card.y + 18;
-    const int tx[] = {mx, mx + 12, mx};
-    const int ty[] = {my, my + 7, my + 14};
-    renderer.fillPolygon(tx, ty, 3, false);
+    renderer.drawRect(cover.x - 4, cover.y - 4, cover.width + 8, cover.height + 8, 2, false);
+    const Rect mark = openMarkRect(renderer, cover);
+    const int cy = mark.y + mark.height / 2;
+    const int tx[] = {mark.x + 8, mark.x + 15, mark.x + 8};
+    const int tyy[] = {cy - 5, cy, cy + 5};
+    renderer.fillPolygon(tx, tyy, 3, false);
+    deck::drawTracked(renderer, SMALL_FONT_ID, mark.x + 22, mark.y + 3, "OPEN", 2, false, true);
   }
 
-  // Fox in the lower right, above the key bar; rows that reach it get shorter.
-  const int foxX = rect.x + rect.width - kSide - kFoxIdle.width + 6;
-  const int foxY = renderer.getScreenHeight() - m.buttonHintsHeight - 4 - kFoxIdle.height;
-  drawSprite(renderer, kFoxIdle, foxX, foxY);
-
+  // Rows fill the space down to the key bar.
+  const int top = rect.y;
+  const int bottom = renderer.getScreenHeight() - m.buttonHintsHeight - 8;
+  constexpr int kGap = 8;
+  const int n = std::max(1, buttonCount);
+  const int rowH = std::max(40, (bottom - top - kGap * (n - 1)) / n);
+  const int font = deck::displayFont(rowH >= 64 ? 17 : 13);
+  const int lineCap = (rowH >= 64 ? 17 : 13) * 150 * 70 / 7200;
+  const bool op = deck::companionOn();
   for (int i = 0; i < buttonCount; ++i) {
-    const int y = rect.y + i * step;
-    if (y + rowH > foxY + kFoxIdle.height) break;
-    const int w = y + rowH > foxY + 20 ? foxX - x - 4 : fullW;
+    const int y = top + i * (rowH + kGap);
+    // Rows level with the Operator's legs make room for them.
+    const int w = op && y < kOpY + kOpHome.height ? kOpX - x - 4 : fullW;
     const bool sel = i == selectedIndex;
     if (sel) {
       deck::fillChamfer(renderer, x, y, w, rowH, 14, true);
     } else {
       deck::drawChamfer(renderer, x, y, w, rowH, 14, 2);
     }
-    const int ty = y + (rowH - lineH) / 2;
+    const int cy = y + rowH / 2;
     if (sel) {
-      // ▶ marker.
-      const int cy = y + rowH / 2;
       const int xs[] = {x + 16, x + 26, x + 16};
-      const int ys[] = {cy - 6, cy, cy + 6};
+      const int ys[] = {cy - 7, cy, cy + 7};
       renderer.fillPolygon(xs, ys, 3, false);
     }
-    const std::string label = renderer.truncatedText(font, deck::upper(buttonLabel(i)).c_str(), w - 40 - 14);
-    renderer.drawText(font, x + 40, ty, label.c_str(), !sel);
+    const std::string label = homeLabel(buttonLabel(i));
+    const char* kana = deck::kanaFor(label);
+    const int kanaW = kana ? renderer.getTextWidth(deck::kanaFont(), kana) : 0;
+    const int labelMax = w - 40 - (kana ? kanaW + 70 : 14);
+    const std::string shown = renderer.truncatedText(font, label.c_str(), labelMax);
+    const int capOffset = deck::displayCapOffset(renderer, rowH >= 64 ? 17 : 13);
+    renderer.drawText(font, x + 40, cy - lineCap / 2 - capOffset, shown.c_str(), !sel);
+    if (kana) {
+      renderer.drawText(deck::kanaFont(), x + w - 60 - kanaW, cy - renderer.getLineHeight(deck::kanaFont()) / 2, kana,
+                        !sel);
+    }
   }
+
+  // Operator sitting on the card's bottom-right edge, over everything.
+  if (op) drawSprite(renderer, kOpHome, kOpX, kOpY);
 }
 
 void DeckTheme::drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
@@ -633,7 +713,9 @@ Rect DeckTheme::drawBookOpening(const GfxRenderer& renderer, const char* title) 
     ty += lh;
   }
   y += static_cast<int>(lines.size()) * lh + 30;
-  if (y + kFoxRun.height < H - 110) drawSprite(renderer, kFoxRun, (W - kFoxRun.width) / 2, y);
+  if (deck::companionOn()) {
+    if (y + kOpOpen.height < H - 70) drawSprite(renderer, kOpOpen, (W - kOpOpen.width) / 2, y);
+  }
 
   const int msgY = H - 40 - renderer.getLineHeight(SMALL_FONT_ID);
   const int barY = msgY - 20;

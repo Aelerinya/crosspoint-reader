@@ -7,6 +7,8 @@
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckScreens.h"
 
 namespace fui = freeink::ui;
 
@@ -103,6 +105,12 @@ void UsbDriveActivity::loop() {
 }
 
 void UsbDriveActivity::render(RenderLock&&) {
+  if (deck::listsActive() && state == State::Connected && !preparing) {
+    // Deck v2: CONNECTED, EJECT BEFORE UNPLUGGING, the Operator on her laptop.
+    deck::drawUsbConnected(renderer);
+    renderer.displayBuffer();
+    return;
+  }
   renderer.clearScreen();
 
   const auto& metrics = UITheme::getInstance().getMetrics();

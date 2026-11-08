@@ -8,6 +8,8 @@
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckScreens.h"
 #include "fontIds.h"
 #include "network/OtaUpdater.h"
 
@@ -134,6 +136,11 @@ void OtaUpdateActivity::render(RenderLock&&) {
 
     if (confirmPopup.processRender(renderer, mappedInput)) return;
   } else if (state == UPDATE_IN_PROGRESS) {
+    if (deck::listsActive()) {
+      deck::drawFlashingScreen(renderer, static_cast<int>(updaterProgress * 100));
+      renderer.displayBuffer();
+      return;
+    }
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATING));
 
     int y = top + height + metrics.verticalSpacing;

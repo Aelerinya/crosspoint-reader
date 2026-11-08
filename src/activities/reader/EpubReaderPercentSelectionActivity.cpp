@@ -7,11 +7,13 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "components/Sprite.h"
 #include "components/UITheme.h"
 #include "components/UiSliderDialog.h"
 #include "components/themes/extra/DeckList.h"
 #include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
+#include "images/DeckOperator.h"
 
 namespace fui = freeink::ui;
 
@@ -28,7 +30,10 @@ constexpr int kLargeStep = 10;
 EpubReaderPercentSelectionActivity::EpubReaderPercentSelectionActivity(GfxRenderer& renderer,
                                                                        MappedInputManager& mappedInput,
                                                                        const int initialPercent)
-    : Activity("EpubReaderPercentSelection", renderer, mappedInput), UiAppHost(renderer), percent(initialPercent) {}
+    : Activity("EpubReaderPercentSelection", renderer, mappedInput),
+      UiAppHost(renderer),
+      percent(initialPercent),
+      nowPercent(initialPercent) {}
 
 void EpubReaderPercentSelectionActivity::onEnter() {
   Activity::onEnter();
@@ -178,37 +183,54 @@ void EpubReaderPercentSelectionActivity::buildPercentScreen(UiScreen& screen) {
 }
 
 void EpubReaderPercentSelectionActivity::renderDeck() {
-  // Deck: huge number, 20 slanted segments, the chapter it lands in.
-  const auto& m = UITheme::getInstance().getMetrics();
+  // Deck v2: caption, the percent huge, 20 segments, the Operator on a tightrope,
+  // and the chapters around the landing point.
   const int W = renderer.getScreenWidth();
-  const int x = m.contentSidePadding;
-  const int w = W - 2 * x;
   renderer.clearScreen();
-  GUI.drawHeader(renderer, Rect{0, m.topPadding, W, m.headerHeight}, "GO TO");
-  int y = m.topPadding + m.headerHeight + 30;
+  deck::drawSmallHeader(renderer, "GO TO");
+  char caption[64];
+  snprintf(caption, sizeof(caption), "%% THROUGH THE WHOLE EPUB \xc2\xb7 NOW %d%%", nowPercent);
+  deck::drawTracked(renderer, UI_10_FONT_ID, 20, 50, caption, 1, true, true);
   char num[8];
-  snprintf(num, sizeof(num), "%d", percent);
+  snprintf(num, sizeof(num), "%d%%", percent);
   const int big = deck::displayFont(76);
-  const int bigCap = 76 * 150 * 70 / 7200;
-  renderer.drawText(big, x, y - deck::displayCapOffset(renderer, 76), num);
   const int nw = renderer.getTextWidth(big, num);
-  const int pctFont = deck::displayFont(31);
-  const int pctCap = 31 * 150 * 70 / 7200;
-  renderer.drawText(pctFont, x + nw + 8, y + bigCap - pctCap - deck::displayCapOffset(renderer, 31), "%");
-  y += bigCap + 24;
-  deck::segments(renderer, x, y, w, 22, 20, (percent + 2) / 5);
-  y += 22 + 24;
+  renderer.drawText(big, (W - nw) / 2, 104 - deck::displayCapOffset(renderer, 76), num);
+  deck::segments(renderer, 30, 290, W - 60, 16, 20, (percent + 2) / 5);
+  renderer.fillRect(16, 380, 8, 230, true);
+  if (deck::companionOn()) drawSprite(renderer, kOpGoto, 0, 0);
   if (landsIn) {
-    const std::string chapter = landsIn(percent);
-    if (!chapter.empty()) {
-      const int lh = renderer.getLineHeight(SMALL_FONT_ID);
-      const int cap = 13 * 150 * 70 / 7200;
-      const int h = 12 + lh + 6 + cap + 14;
-      deck::drawChamfer(renderer, x, y, w, h, 14, 2);
-      deck::drawTracked(renderer, SMALL_FONT_ID, x + 14, y + 12, "LANDS IN", 3, true, true);
-      const int f = deck::displayFont(13);
-      const std::string t = renderer.truncatedText(f, deck::upper(chapter).c_str(), w - 28);
-      renderer.drawText(f, x + 14, y + 12 + lh + 6 - deck::displayCapOffset(renderer, 13), t.c_str());
+    int y = 630;
+    renderer.fillRect(16, y, W - 32, 2, true);
+    y += 2;
+    const int font = deck::displayFont(13);
+    const int cap = 13 * 150 * 70 / 7200;
+    const int rowH = 34;
+    for (int off = -1; off <= 1; off++) {
+      const std::string t = landsIn(percent, off);
+      const bool cur = off == 0;
+      if (cur) renderer.fillRect(16, y, W - 32, rowH, true);
+      std::string kick, name = t;
+      const size_t colon = t.find(": ");
+      if (colon != std::string::npos && colon < 24) {
+        kick = t.substr(0, colon);
+        name = t.substr(colon + 2);
+      }
+      const int cy = y + rowH / 2;
+      if (cur) {
+        const int xs[] = {26, 33, 26};
+        const int ys[] = {cy - 5, cy, cy + 5};
+        renderer.fillPolygon(xs, ys, 3, false);
+      }
+      if (!kick.empty()) {
+        deck::drawTracked(
+            renderer, SMALL_FONT_ID, 48, cy - renderer.getLineHeight(SMALL_FONT_ID) / 2,
+            renderer.truncatedText(SMALL_FONT_ID, deck::upper(kick).c_str(), 100, EpdFontFamily::BOLD).c_str(), 1, !cur,
+            true);
+      }
+      renderer.drawText(font, 48 + 110, cy - cap / 2 - deck::displayCapOffset(renderer, 13),
+                        renderer.truncatedText(font, deck::upper(name).c_str(), W - 16 - 10 - 158).c_str(), !cur);
+      y += rowH;
     }
   }
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "GO", "-1", "+1");

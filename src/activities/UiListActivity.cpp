@@ -256,6 +256,7 @@ void UiListActivity::drawDeckList(UiScreen& screen, fui::ListProps& props, const
     row.toggleOn = item.toggleChecked;
     row.isHeader = item.isHeader;
     if (item.sectionHeading) row.heading = item.sectionHeading;
+    deckRowExtra(index, row);
     return true;
   });
   const bool moved = top != n.top;

@@ -28,4 +28,13 @@ void drawQuickResumeTab(const GfxRenderer& renderer);
 // shard on the right, then the glitch lines, then the clean frame goes out.
 void transitionOut(const GfxRenderer& renderer, const char* destination, bool flash);
 void transitionIn(const GfxRenderer& renderer);
+// v2 (Operator companion) screens, see DeckV2Screens.cpp.
+void drawOnlineScreen(const GfxRenderer& renderer, bool received, const char* mode, const char* host,
+                      const char* message);
+void drawUsbConnected(const GfxRenderer& renderer);
+// Modal over the current frame: hatch shade, LOW BATTERY card with the percent.
+void drawLowBatteryCard(const GfxRenderer& renderer, int percent);
+void drawFlashingScreen(const GfxRenderer& renderer, int percent);
+// Settings: framed illustration panel (y 50..390) above the rows.
+void drawSettingsPanel(const GfxRenderer& renderer);
 }  // namespace deck

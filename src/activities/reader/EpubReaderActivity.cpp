@@ -1244,12 +1244,17 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       const int initialPercent = bookPercentFor(chapterPosition());
       auto percentActivity =
           std::make_unique<EpubReaderPercentSelectionActivity>(renderer, mappedInput, initialPercent);
-      percentActivity->setLandsIn([this](const int percent) -> std::string {
+      percentActivity->setLandsIn([this](const int percent, const int offset) -> std::string {
         if (!epub || epub->getBookSize() == 0) return {};
         const size_t target = epub->getBookSize() / 100 * static_cast<size_t>(clampPercent(percent));
-        const int spine = epub->getSpineIndexForSize(target);
-        const int toc = spine >= 0 ? epub->getTocIndexForSpineIndex(spine) : -1;
-        return toc >= 0 ? epub->getTocItem(toc).title : std::string();
+        int spine = epub->getSpineIndexForSize(target);
+        int toc = spine >= 0 ? epub->getTocIndexForSpineIndex(spine) : -1;
+        // Front matter outside the TOC (title page): name the first chapter after it.
+        while (toc < 0 && spine >= 0 && ++spine < epub->getSpineItemsCount())
+          toc = epub->getTocIndexForSpineIndex(spine);
+        const int index = toc + offset;
+        return toc >= 0 && index >= 0 && index < epub->getTocItemsCount() ? epub->getTocItem(index).title
+                                                                          : std::string();
       });
       startActivityForResult(std::move(percentActivity), [this](const ActivityResult& result) {
         if (result.isCancelled) {

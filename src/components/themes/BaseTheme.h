@@ -251,7 +251,7 @@ class BaseTheme {
   // Draws a pre-dithered cover thumb 1:1, centered and clipped to fill the
   // slot. Rescaling a dithered bitmap aliases badly, so overflow is cropped.
   static bool drawCoverThumbFill(const GfxRenderer& renderer, const Bitmap& bitmap, Rect slot, int xOffset = 0,
-                                 const std::string& path = {});
+                                 const std::string& path = {}, int yOffset = 0);
   // Call after drawing solid chrome over a logged cover.
   static void excludeFromGrayCovers(int x, int y, int width, int height);
   // Draws a recorded cover into the current gray plane.

@@ -5,18 +5,22 @@ Usage: convert_sprites.py OUT.h NAME=path.png:WxH [NAME=path.png:Wx | :xH ...]
 
 Each image is scaled to the given width and/or height (aspect kept when one
 side is omitted), thresholded at 50% gray, and stored row-major as alternating
-white/black run lengths starting with white. A run of 255 or more is written
+off/on run lengths starting with off. A run of 255 or more is written
 as 255-bytes followed by the remainder (so a 255 byte means "continue").
-Drawn by Sprite.h's drawSprite(): only black runs are painted (transparent).
+Opaque images: one layer, the black ink. Images with transparency (RGBA art
+with a white halo): two layers, the ink and the opaque white halo.
+Drawn by Sprite.h's drawSprite(): halo in white, then ink in black; the rest
+stays transparent.
 """
 import sys
 
 from PIL import Image
 
 
-def encode(img):
-    w, h = img.size
-    px = img.load()
+def encode(mask):
+    """mask: 'L' image, on where pixel < 128."""
+    w, h = mask.size
+    px = mask.load()
     out = bytearray()
     color = 0  # 0 = white, 1 = ink
     run = 0
@@ -43,7 +47,7 @@ def encode(img):
 def load(spec):
     path, size = spec.rsplit(":", 1)
     sw, sh = size.split("x")
-    img = Image.open(path).convert("L")
+    img = Image.open(path).convert("RGBA")
     w0, h0 = img.size
     if sw and sh:
         w, h = int(sw), int(sh)
@@ -53,7 +57,17 @@ def load(spec):
     else:
         h = int(sh)
         w = round(w0 * h / h0)
-    return img.resize((w, h), Image.LANCZOS)
+    if (w, h) != (w0, h0):
+        img = img.resize((w, h), Image.LANCZOS)
+    alpha = img.getchannel("A")
+    gray = img.convert("L")
+    opaque = alpha.point(lambda a: 255 if a >= 128 else 0)
+    # ink: opaque and dark; halo: opaque and light (both as "on = 0" masks)
+    ink = Image.composite(gray.point(lambda v: 0 if v < 128 else 255), Image.new("L", img.size, 255), opaque)
+    halo = None
+    if alpha.getextrema()[0] < 128:
+        halo = Image.composite(gray.point(lambda v: 0 if v >= 128 else 255), Image.new("L", img.size, 255), opaque)
+    return ink, halo
 
 
 def main():
@@ -63,15 +77,18 @@ def main():
     total = 0
     for arg in sys.argv[2:]:
         name, spec = arg.split("=", 1)
-        img = load(spec)
-        data = encode(img)
-        total += len(data)
-        body = ",".join(f"0x{b:02X}" for b in data)
-        lines = [body[i:i + 120] for i in range(0, len(body), 120)]
-        parts.append(f"\n// {spec} -> {img.size[0]}x{img.size[1]}, {len(data)} bytes\n")
-        parts.append(f"static const uint8_t {name}_runs[] = {{\n" + "\n".join(lines) + "};\n")
-        parts.append(f"static constexpr Sprite {name} = {{{img.size[0]}, {img.size[1]}, {name}_runs, "
-                     f"sizeof({name}_runs)}};\n")
+        ink, halo = load(spec)
+        layers = [("runs", encode(ink))] + ([("halo", encode(halo))] if halo else [])
+        size = sum(len(d) for _, d in layers)
+        total += size
+        parts.append(f"\n// {spec} -> {ink.size[0]}x{ink.size[1]}, {size} bytes\n")
+        for suffix, data in layers:
+            body = ",".join(f"0x{b:02X}" for b in data)
+            lines = [body[i:i + 120] for i in range(0, len(body), 120)]
+            parts.append(f"static const uint8_t {name}_{suffix}[] = {{\n" + "\n".join(lines) + "};\n")
+        halo_ref = f"{name}_halo, sizeof({name}_halo)" if halo else "nullptr, 0"
+        parts.append(f"static constexpr Sprite {name} = {{{ink.size[0]}, {ink.size[1]}, {name}_runs, "
+                     f"sizeof({name}_runs), {halo_ref}}};\n")
     open(out_path, "w").write("".join(parts))
     print(f"{out_path}: {total} bytes of runs")
 

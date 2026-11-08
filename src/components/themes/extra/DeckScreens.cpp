@@ -1,8 +1,10 @@
 #include "DeckScreens.h"
 
+#include <Bitmap.h>
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
 #include <HalPowerManager.h>
+#include <HalStorage.h>
 #include <Memory.h>
 
 #include <algorithm>
@@ -13,8 +15,10 @@
 #include "DeckTheme.h"
 #include "RecentBooksStore.h"
 #include "components/Sprite.h"
+#include "components/UITheme.h"
 #include "fontIds.h"
-#include "images/DeckFox.h"
+#include "images/DeckOperator.h"
+#include "util/BookProgress.h"
 
 namespace deck {
 
@@ -22,6 +26,80 @@ void drawKitsuneSleepScreen(const GfxRenderer& r) {
   const int W = r.getScreenWidth();
   const int H = r.getScreenHeight();
   constexpr int kPad = 18;
+  if (companionOn() && H >= 800) {
+    // v2 (C4): SLEEP header with the battery, the book's cover card on top,
+    // the sleeping Operator below, HOLD PWR TO WAKE.
+    r.clearScreen();
+    char bat[16];
+    snprintf(bat, sizeof(bat), "BAT %u%%",
+             static_cast<unsigned>(std::min<int>(100, powerManager.getBatteryPercentage())));
+    drawSmallHeader(r, "SLEEP", bat);
+    const auto& books = RECENT_BOOKS.getBooks();
+    const int cx = 16, cy = 52, cw = W - 32, ch = 300;
+    fillChamfer(r, cx, cy, cw, ch, 24, true);
+    bool cover = false;
+    std::string chapter;
+    if (!books.empty()) {
+      const auto& book = books.front();
+      loadBookProgress(book.path, &chapter);
+      if (!book.coverBmpPath.empty()) {
+        const std::string path = UITheme::getCoverThumbPath(book.coverBmpPath, 733);
+        HalFile file;
+        if (Storage.openFileForRead("SLP", path, file)) {
+          Bitmap bitmap(file);
+          if (bitmap.parseHeaders() == BmpReaderError::Ok) {
+            const int extra = bitmap.getHeight() - ch;
+            cover = BaseTheme::drawCoverThumbFill(r, bitmap, Rect{cx, cy, cw, ch}, 0, {}, extra / 2 - extra * 22 / 100);
+          }
+          file.close();
+        }
+      }
+    }
+    if (cover) {
+      // Cut the card's corners back out of the cover.
+      for (int row = 0; row < 24; ++row) {
+        r.fillRect(cx, cy + row, 24 - row, 1, false);
+        r.fillRect(cx + cw - (24 - row), cy + ch - 1 - row, 24 - row, 1, false);
+      }
+    } else {
+      hatch(r, cx + 20, cy + 20, cw - 40, ch - 150, false);
+    }
+    // STANDBY tag, top right.
+    const int tf = displayFont(13);
+    const int tcap = 13 * 150 * 70 / 7200;
+    const int tagW = r.getTextWidth(tf, "STANDBY") + r.getTextWidth(kanaFont(), "スタンバイ") + 28;
+    const int tagH = tcap + 14;
+    r.fillRect(cx + cw - 12 - tagW, cy + 12, tagW, tagH, true);
+    r.drawText(tf, cx + cw - 12 - tagW + 10, cy + 12 + 7 - displayCapOffset(r, 13), "STANDBY", false);
+    r.drawText(kanaFont(), cx + cw - 12 - tagW + 18 + r.getTextWidth(tf, "STANDBY"), cy + 14, "スタンバイ", false);
+    // Title band at the bottom of the card, notched at 52%.
+    const int small = SMALL_FONT_ID;
+    const int lh = r.getLineHeight(small);
+    const int title = displayFont(22);
+    const int cap = 22 * 150 * 70 / 7200;
+    const int bandH = 30 + cap + 8 + lh + 16;
+    const int top = cy + ch - bandH;
+    const int nx = cx + cw * 52 / 100;
+    const int bx[] = {cx, nx, nx + 22, cx + cw, cx + cw - 24, cx};
+    const int by[] = {top + 22, top + 22, top, top, cy + ch, cy + ch};
+    r.fillPolygon(bx, by, 6, true);
+    if (!books.empty()) {
+      const std::string t = r.truncatedText(title, upper(books.front().title).c_str(), cw - 36);
+      r.drawText(title, cx + 18, top + 30 - displayCapOffset(r, 22), t.c_str(), false);
+      const std::string sub = upper(chapter.empty() ? books.front().author : chapter);
+      drawTracked(r, small, cx + 18, top + 30 + cap + 8,
+                  r.truncatedText(small, sub.c_str(), cw - 36, EpdFontFamily::BOLD).c_str(), 2, false, true);
+    }
+    drawSprite(r, kOpSleep, 24, 158);
+    const int sy = H - 14 - lh;
+    const int dx[] = {16 + 5, 16 + 10, 16 + 5, 16};
+    const int dy[] = {sy + lh / 2 - 5, sy + lh / 2, sy + lh / 2 + 5, sy + lh / 2};
+    r.fillPolygon(dx, dy, 4, true);
+    drawTracked(r, small, 16 + 16, sy, "HOLD PWR TO WAKE", 2, true, true);
+    const int rx = 16 + 16 + trackedWidth(r, small, "HOLD PWR TO WAKE", 2, true) + 10;
+    r.fillRect(rx, sy + lh / 2 - 1, W - 16 - rx, 2, true);
+    return;
+  }
   r.clearScreen();
 
   // STANDBY over a 2 px rule.
@@ -67,15 +145,12 @@ void drawKitsuneSleepScreen(const GfxRenderer& r) {
     }
   }
 
-  // Fox centred in the space between the rule and the card, with hatch shards.
+  // Companion off: hatch shards fill the space between the rule and the card.
   const int top = ruleY + 2;
   const int bottom = cardH > 0 ? cardY : statusY - 10;
-  const int foxX = (W - kFoxSleep.width) / 2;
-  const int foxY = top + std::max(0, (bottom - top - kFoxSleep.height) / 2);
   hatch(r, kPad, top + 14, 150, 18);
-  hatch(r, W - kPad - 26, foxY + 40, 26, kFoxSleep.height - 80);
+  hatch(r, W - kPad - 26, top + 80, 26, std::max(0, bottom - top - 160));
   hatch(r, kPad, bottom - 50, 60, 36);
-  drawSprite(r, kFoxSleep, foxX, foxY);
 
   drawTracked(r, small, kPad, statusY, "HOLD PWR TO WAKE", 2, true, true);
   char bat[16];
@@ -88,17 +163,32 @@ void drawKitsuneSleepScreen(const GfxRenderer& r) {
 void drawWakingScreen(const GfxRenderer& r, const char* message) {
   const int W = r.getScreenWidth();
   const int H = r.getScreenHeight();
+  if (companionOn() && H >= 800) {
+    // v2: one of three full-screen scenes at random; A and C under a huge WAKING
+    // (B's art has the letters), a 20-segment loading bar at the bottom.
+    r.clearScreen();
+    const int pick = static_cast<int>(micros() % 3);
+    const Sprite& art = pick == 0 ? kOpWakeA : (pick == 1 ? kOpWakeB : kOpWakeC);
+    if (pick != 1) {
+      const int big = displayFont(76);
+      const int tw = r.getTextWidth(big, "WAKING");
+      r.drawText(big, (W - tw) / 2, 34 - displayCapOffset(r, 76), "WAKING");
+    }
+    drawSprite(r, art, 0, 0);
+    segments(r, 24, 752, W - 48, 14, 20, 6);
+    (void)message;
+    return;
+  }
   constexpr int kPad = 24;
   r.clearScreen();
   const int big = displayFont(46);
   const int bigH = 46 * 150 * 70 / (72 * 100);
-  const int total = bigH + 24 + kFoxWake.height + 30 + 10 + 10 + r.getLineHeight(SMALL_FONT_ID);
+  const int total = bigH + 30 + 10 + 10 + r.getLineHeight(SMALL_FONT_ID);
   int y = std::max(kPad, (H - total) / 2);
   r.drawText(kanaFont(), kPad, y - r.getLineHeight(kanaFont()) - 8, "おはよう");
   r.drawText(big, kPad, y - displayCapOffset(r, 46), "WAKING");
   y += bigH + 24;
-  drawSprite(r, kFoxWake, (W - kFoxWake.width) / 2, y);
-  y += kFoxWake.height + 30;
+  y += 30;
   segments(r, kPad, y, W - 2 * kPad, 10, 6, 4);
   y += 20;
   if (message && message[0]) drawTracked(r, SMALL_FONT_ID, kPad, y, upper(message).c_str(), 2, true, true);
@@ -107,6 +197,37 @@ void drawWakingScreen(const GfxRenderer& r, const char* message) {
 void drawChapterClear(const GfxRenderer& r, const char* book, const char* finished, const char* next) {
   const int W = r.getScreenWidth();
   const int H = r.getScreenHeight();
+  if (companionOn() && H >= 800) {
+    // v2: the CHAPTER CLEAR mountain letters with her flag; header, book and chapter
+    // on top, NEXT line at the bottom.
+    r.clearScreen();
+    drawSmallHeader(r, "CLEAR");
+    const int small = SMALL_FONT_ID;
+    const std::string k = "// " + upper(book ? book : "");
+    drawTracked(r, small, 18, 50, r.truncatedText(small, k.c_str(), W - 36, EpdFontFamily::BOLD).c_str(), 3, true,
+                true);
+    const std::string done = upper(finished ? finished : "");
+    drawTracked(r, UI_10_FONT_ID, 18, 50 + r.getLineHeight(small) + 2,
+                r.truncatedText(UI_10_FONT_ID, done.c_str(), W - 36, EpdFontFamily::BOLD).c_str(), 1, true, true);
+    drawSprite(r, kOpClear, 14, 40);
+    const int lh = r.getLineHeight(small);
+    const int y = 772 - lh / 2;
+    const std::string n = "NEXT \xe2\x96\xb8 " + upper(next ? next : "");
+    const std::string nt =
+        r.truncatedText(small, ("NEXT  " + upper(next ? next : "")).c_str(), W - 36 - 120, EpdFontFamily::BOLD);
+    const int tw = trackedWidth(r, small, nt.c_str(), 1, true);
+    const int tx = W - 18 - 50 - 10 - tw;
+    r.fillRect(18, 770, tx - 10 - 18, 4, true);
+    drawTracked(r, small, tx, y, nt.c_str(), 1, true, true);
+    // ▸ drawn as a shape after "NEXT".
+    const int ax = tx + trackedWidth(r, small, "NEXT", 1, true) + 3;
+    const int axs[] = {ax, ax + 6, ax};
+    const int ays[] = {772 - 4, 772, 772 + 4};
+    r.fillPolygon(axs, ays, 3, true);
+    r.fillRect(W - 18 - 50, 770, 50, 4, true);
+    (void)n;
+    return;
+  }
   constexpr int kPad = 18;
   r.clearScreen();
   // Positions follow the 480x800 design, scaled to the screen height.
@@ -122,10 +243,8 @@ void drawChapterClear(const GfxRenderer& r, const char* book, const char* finish
       hatch(r, x0, top + row, W - x0, 1);
     }
   }
-  const int foxX = W - 24 - kFoxChapter.width;
+  const int foxX = W - 24;  // companion off: the text keeps its column
   const int foxY = sy(226);
-  // White cut-out behind the fox so the stripes don't run through it.
-  drawSprite(r, kFoxChapter, foxX, foxY);
 
   const int small = SMALL_FONT_ID;
   int y = sy(74);
@@ -144,7 +263,7 @@ void drawChapterClear(const GfxRenderer& r, const char* book, const char* finish
               true);
 
   // NEXT ▸ title, then a rule to the edge.
-  y = std::max(sy(640), foxY + kFoxChapter.height + 16);
+  y = std::max(sy(640), foxY + 16);
   const int lh = r.getLineHeight(small);
   drawTracked(r, small, kPad, y, "NEXT", 2, true, true);
   int x = kPad + trackedWidth(r, small, "NEXT", 2, true) + 8;

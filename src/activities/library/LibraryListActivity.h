@@ -3,6 +3,7 @@
 #include <LibraryIndexFile.h>
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -40,7 +41,11 @@ class LibraryListActivity final : public UiTabListActivity {
   // --- UiListActivity / UiTabListActivity contract ---------------------------
   int listCount() const override;
   void buildScreen(UiScreen& screen) override;
-  void deckListSpec(deck::ListSpec& spec) override { spec.style = deck::ListStyle::Books; }
+  void deckListSpec(deck::ListSpec& spec) override { spec.style = deck::ListStyle::Library; }
+  void deckRowExtra(int index, deck::Row& row) override;
+  // Deck v2: big LIBRARY tab, framed list with the sort strip (drawn in buildScreen).
+  void buildDeckChrome(UiScreen& screen);
+  std::map<std::string, int> deckProgress;  // per-session progress cache for the Deck rows
   void activateIndex(int index) override;
   void onRowLongPress(int index) override;
 #if FREEINK_CAP_TOUCH

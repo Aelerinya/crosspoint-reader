@@ -9,8 +9,10 @@
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
+#include "components/Sprite.h"
 #include "components/UITheme.h"
 #include "components/themes/extra/DeckTheme.h"
+#include "images/DeckOperator.h"
 #include "util/PluginEvents.h"
 #include "util/SlideSwitch.h"
 
@@ -211,10 +213,9 @@ void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
   // Content: the safe area minus the header band GUI.drawHeader paints.
   if (deck::listsActive()) {
-    // Rows inside the panel drawChrome paints; no progress summary (labels only).
-    const int rowsTop = kDeckPanelTop + 44 + 18 + 13 * 150 * 70 / 7200 + 14;
-    screen.setContentMarginFromScreen(
-        fui::Insets{static_cast<int16_t>(rowsTop), 0, static_cast<int16_t>(metrics.buttonHintsHeight + 4), 0});
+    // Rows inside the panel drawChrome paints (30 px under its top, clear of the
+    // scroll box on the right); no progress summary (labels only).
+    screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(kDeckPanelTop + 33), 69, 65, 1});
   } else {
     screen.setContentMarginFromScreen(fui::Insets{
         static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
@@ -267,21 +268,22 @@ void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
 
 void EpubReaderMenuActivity::drawChrome() {
   if (deck::listsActive()) {
-    // Panel over the page: a notched top edge (step up at 62% of the width), black outline.
+    // v2: the Operator above, pressing a chamfered panel (top-right and
+    // bottom-left cuts) that holds the rows; the page stays visible above.
     const int W = renderer.getScreenWidth();
-    const int H = renderer.getScreenHeight();
+    const int bottom = renderer.getScreenHeight() - 58;
+    if (deck::companionOn()) drawSprite(renderer, kOpMenu, 0, 0);
     const int top = kDeckPanelTop;
-    const int notch = W * 62 / 100;
-    const int outer[][2] = {{0, top + 40}, {notch, top + 40}, {notch + 40, top}, {W, top}, {W, H}, {0, H}};
-    const int inner[][2] = {{0, top + 44}, {notch + 1, top + 44}, {notch + 41, top + 4}, {W, top + 4}, {W, H}, {0, H}};
-    int xs[6], ys[6];
-    for (int i = 0; i < 6; ++i) xs[i] = outer[i][0], ys[i] = outer[i][1];
-    renderer.fillPolygon(xs, ys, 6, true);
-    for (int i = 0; i < 6; ++i) xs[i] = inner[i][0], ys[i] = inner[i][1];
-    renderer.fillPolygon(xs, ys, 6, false);
-    const int cap = 13 * 150 * 70 / 7200;
-    renderer.drawText(deck::displayFont(13), 18, top + 44 + 18 - deck::displayCapOffset(renderer, 13), "READER MENU");
-    (void)cap;
+    const int ox[] = {16, W - 16 - 24, W - 16, W - 16, 16 + 24, 16};
+    const int oy[] = {top, top, top + 24, bottom, bottom, bottom - 24};
+    renderer.fillPolygon(ox, oy, 6, true);
+    const int ix[] = {19, W - 19 - 23, W - 19, W - 19, 19 + 23, 19};
+    const int iy[] = {top + 3, top + 3, top + 26, bottom - 3, bottom - 3, bottom - 26};
+    renderer.fillPolygon(ix, iy, 6, false);
+    deck::hatch(renderer, 19 + 14, top + 13, W - 19 - 60 - (19 + 14), 8);
+    const int sx = W - 19 - 14 - 40;
+    renderer.drawRect(sx, top + 47, 40, bottom - 3 - 44 - (top + 47), 2, true);
+    deck::hatch(renderer, sx + 4, top + 51, 32, bottom - 3 - 44 - (top + 47) - 8);
     return;
   }
   // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery

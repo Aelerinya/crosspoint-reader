@@ -1,7 +1,9 @@
 #include "LibraryListActivity.h"
 
 #include <BoardConfig.h>
+#include <Epub.h>
 #include <FreeInkUIIcon.h>
+#include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -9,6 +11,7 @@
 #include <LibraryText.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <Txt.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -19,13 +22,17 @@
 #include "RecentBooksStore.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "components/Sprite.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "components/icons/headerIcons.h"
 #include "components/icons/listIcons.h"
 #include "components/icons/search32.h"
+#include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
+#include "images/DeckOperator.h"
 #include "util/BookCacheUtils.h"
+#include "util/BookProgress.h"
 
 namespace fui = freeink::ui;
 
@@ -911,6 +918,8 @@ void LibraryListActivity::buildRows(UiScreen& screen) {
 #endif
   finishDeckList(screen, props);
   screen.list(props);
+  // Deck v2: the Operator lies on top of the list.
+  if (deck::listsActive() && deck::companionOn()) drawSprite(renderer, kOpLibrary, 0, 0);
 #if defined(ENABLE_SERIAL_LOG) && LOG_LEVEL >= 2
   const int next = nav.drawnRows;
   const auto body = screen.body();
@@ -1000,12 +1009,15 @@ void LibraryListActivity::buildScreen(UiScreen& screen) {
   const int16_t readoutReserved = static_cast<int16_t>(renderer.getLineHeight(SMALL_FONT_ID) + READOUT_GAP);
   const Rect area = UITheme::getContentArea(renderer);
   const auto bottomInset = static_cast<int16_t>(renderer.getScreenHeight() - area.y - area.height);
-  buildHeader(screen);
-  screen.setContentMarginFromScreen(
-      fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
-                  static_cast<int16_t>(bottomInset + metrics.buttonHintsHeight + readoutReserved), 0});
-
-  if (!degraded) buildTabBar(screen);
+  if (deck::listsActive()) {
+    buildDeckChrome(screen);
+  } else {
+    buildHeader(screen);
+    screen.setContentMarginFromScreen(
+        fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
+                    static_cast<int16_t>(bottomInset + metrics.buttonHintsHeight + readoutReserved), 0});
+    if (!degraded) buildTabBar(screen);
+  }
   if (bookRowCount() == 0) {
     const char* message = tr(STR_LIBRARY_NO_RESULTS);
     if (filterFailed) {
@@ -1025,7 +1037,99 @@ void LibraryListActivity::buildScreen(UiScreen& screen) {
 // consume band height), so a page total grows and shrinks as you scroll. The
 // book position is stable by construction, and it answers the question the
 // reader actually has: how far in am I, and how much is left.
+void LibraryListActivity::buildDeckChrome(UiScreen& screen) {
+  constexpr int kX = 16;
+  const int W = renderer.getScreenWidth();
+  const int H = renderer.getScreenHeight();
+  deck::drawSmallHeader(renderer, headerTitle());
+  // Big tab: "LIBRARY" in the display face on black, slanted right edge, then a bar.
+  const int tabY = 54, tabH = 70;
+  const int big = deck::displayFont(31);
+  const std::string title = deck::upper(headerTitle());
+  const int tw = renderer.getTextWidth(big, title.c_str());
+  const char* kana = deck::kanaFor(title);
+  const int kw = kana ? renderer.getTextWidth(deck::kanaFont(), kana) + 8 : 0;
+  const int tabW = 14 + tw + kw + 44;
+  const int xs[] = {kX, kX + tabW, kX + tabW - 30, kX};
+  const int ys[] = {tabY, tabY, tabY + tabH, tabY + tabH};
+  renderer.fillPolygon(xs, ys, 4, true);
+  const int cap = 31 * 150 * 70 / 7200;
+  const int capTop = tabY + (tabH - cap) / 2 + 4;
+  renderer.drawText(big, kX + 14, capTop - deck::displayCapOffset(renderer, 31), title.c_str(), false);
+  if (kana) renderer.drawText(deck::kanaFont(), kX + 14 + tw + 8, capTop, kana, false);
+  const int barX = kX + tabW - 26;
+  const int bx[] = {barX + 16, W - kX, W - kX, barX};
+  const int by[] = {tabY, tabY, tabY + 16, tabY + 16};
+  renderer.fillPolygon(bx, by, 4, true);
+
+  // List box: 3 px frame from y 280 to above the key bar; a black strip of sort tabs on top.
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int boxTop = 280, boxBottom = H - metrics.buttonHintsHeight;
+  renderer.drawRect(kX, boxTop, W - 2 * kX, boxBottom - boxTop, 3, true);
+  const int stripH = renderer.getLineHeight(SMALL_FONT_ID) + 16;
+  renderer.fillRect(kX, boxTop, W - 2 * kX, stripH, true);
+  if (!degraded) {
+    int tx = kX + 12;
+    const int th = renderer.getLineHeight(SMALL_FONT_ID) + 4;
+    const int ty = boxTop + (stripH - th) / 2;
+    for (int i = 0; i < tabCount(); i++) {
+      const std::string label = deck::upper(tabLabel(i));
+      const int w = deck::trackedWidth(renderer, SMALL_FONT_ID, label.c_str(), 2, true) + 28;
+      const bool active = i == activeTab();
+      if (active) {
+        deck::fillSlant(renderer, tx, ty, w, th, false);
+      } else {
+        deck::drawSlant(renderer, tx, ty, w, th, 2, false);
+      }
+      deck::drawTracked(renderer, SMALL_FONT_ID, tx + 14, ty + 2, label.c_str(), 2, active, true);
+      if (active && tabsFocused()) renderer.fillRect(tx, ty + th + 2, w - 6, 2, false);
+      tx += w + 8;
+    }
+  }
+  // Rows go inside the frame, under the strip.
+  screen.setContentMarginFromScreen(
+      fui::Insets{static_cast<int16_t>(boxTop + stripH), 3, static_cast<int16_t>(H - boxBottom + 3), 3});
+}
+
+void LibraryListActivity::deckRowExtra(const int index, deck::Row& row) {
+  if (groupsCollapsed) return;
+  // Full path: the recents store it; the index rebuilds it from the record.
+  std::string file;
+  if (index < pinnedCount()) {
+    const auto& books = RECENT_BOOKS.getBooks();
+    if (index >= static_cast<int>(books.size())) return;
+    file = books[static_cast<size_t>(index)].path;
+  } else {
+    if (!this->index.isOpen()) return;
+    const uint16_t ordinal = this->index.ordinalForRow(sortOrder, static_cast<uint16_t>(rowFor(index)));
+    library::ClixRecord record{};
+    if (ordinal == 0xFFFF || !this->index.readRecord(ordinal, record) || !this->index.readPath(record, file)) return;
+  }
+  if (file.empty()) return;
+  // Cover thumb (74 px), made from the EPUB's metadata the first time it shows.
+  if (FsHelpers::hasReflowableBookExtension(file) && !Txt::isTxtOrMd(file)) {
+    Epub epub(file, "/.crosspoint");
+    const std::string thumb = epub.getThumbBmpPath(74);
+    if (Storage.exists(thumb.c_str()) || epub.generateThumbBmpFromSource(74)) row.coverPath = thumb;
+  }
+  // Progress for books already opened (the recents), NEW for none.
+  for (const auto& b : RECENT_BOOKS.getBooks()) {
+    if (b.path != file) continue;
+    const auto cached = deckProgress.find(file);
+    int pct;
+    if (cached != deckProgress.end()) {
+      pct = cached->second;
+    } else {
+      pct = loadBookProgress(file);
+      deckProgress[file] = pct;
+    }
+    if (pct >= 0) row.right = std::to_string(pct) + "%";
+    return;
+  }
+}
+
 void LibraryListActivity::drawPositionReadout() const {
+  if (deck::listsActive()) return;  // Deck: labels only
   const int count = listCount();
   if (count <= 0) return;
 

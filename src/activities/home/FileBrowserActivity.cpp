@@ -20,6 +20,7 @@
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
+#include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
 #include "util/BookmarkUtil.h"
@@ -622,13 +623,19 @@ std::string getFileExtension(const std::string& filename) {
 void FileBrowserActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Content below the GUI.drawHeader band, above the button hints.
-  screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
-                                                static_cast<int16_t>(metrics.buttonHintsHeight), 0});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  if (deck::listsActive()) {
+    // Deck v2: rows under the folder title, above the path band drawChrome paints.
+    screen.setContentMarginFromScreen(
+        fui::Insets{115, 0, static_cast<int16_t>(metrics.buttonHintsHeight + 2 + 34 + 4), 0});
+  } else {
+    screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
+                                                  static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  }
 
   // Full path band at the bottom: separator on top, left-truncated so the
   // deepest directory stays visible.
-  {
+  if (!deck::listsActive()) {
     const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
     const fui::Rect band = screen.takeBottom(static_cast<int16_t>(pathLineHeight + metrics.verticalSpacing));
     screen.target().fill(fui::Rect{band.x, band.y, band.width, 3}, fui::Paint::solid(fui::Color::Black));
@@ -688,6 +695,11 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
   screen.list(props);
 }
 
+void FileBrowserActivity::deckRowExtra(const int index, deck::Row& row) {
+  if (index < 0 || index >= static_cast<int>(files.size())) return;
+  row.folder = files[static_cast<size_t>(index)].back() == '/';
+}
+
 void FileBrowserActivity::drawChrome() {
   const auto pageWidth = renderer.getScreenWidth();
   const auto& metrics = UITheme::getInstance().getMetrics();
@@ -696,6 +708,37 @@ void FileBrowserActivity::drawChrome() {
       (mode == Mode::PickFirmware)
           ? std::string(tr(STR_SELECT_FIRMWARE_FILE))
           : ((basepath == "/") ? std::string(tr(STR_SD_CARD)) : basepath.substr(basepath.rfind('/') + 1));
+  if (deck::listsActive()) {
+    // Deck v2: FILES header, folder name huge with its item count, path band at the bottom.
+    constexpr int kX = 16;
+    deck::drawSmallHeader(renderer, "FILES");
+    const int size = 22;
+    const int font = deck::displayFont(size);
+    const int cap = size * 150 * 70 / 7200;
+    const int base = 104;  // bottom of the title's capitals
+    char count[24];
+    snprintf(count, sizeof(count), files.size() == 1 ? "%d ITEM" : "%d ITEMS", static_cast<int>(files.size()));
+    const int cw = deck::trackedWidth(renderer, SMALL_FONT_ID, count, 2, true);
+    const std::string t = renderer.truncatedText(font, deck::upper(folderName).c_str(), pageWidth - 2 * kX - cw - 60);
+    renderer.drawText(font, kX, base - cap - deck::displayCapOffset(renderer, size), t.c_str());
+    const int tw = renderer.getTextWidth(font, t.c_str());
+    deck::drawTracked(renderer, SMALL_FONT_ID, kX + tw + 12, base - renderer.getLineHeight(SMALL_FONT_ID) + 2, count, 2,
+                      true, true);
+    const int sx = kX + tw + 12 + cw + 12;
+    if (pageWidth - kX - sx > 20) deck::hatch(renderer, sx, base - 18, pageWidth - kX - sx, 12);
+    renderer.fillRect(kX, 112, pageWidth - 2 * kX, 3, true);
+    // Path band: black, slanted right end, "SD  /path".
+    const int bandH = 34;
+    const int bandY = renderer.getScreenHeight() - metrics.buttonHintsHeight - 2 - bandH;
+    const int xs[] = {0, pageWidth - 20, pageWidth, 0};
+    const int ys[] = {bandY, bandY, bandY + bandH, bandY + bandH};
+    renderer.fillPolygon(xs, ys, 4, true);
+    const int ty = bandY + (bandH - renderer.getLineHeight(UI_10_FONT_ID)) / 2;
+    deck::drawTracked(renderer, UI_10_FONT_ID, 18, ty, "SD", 1, false, true);
+    const std::string path = renderer.truncatedText(UI_10_FONT_ID, basepath.c_str(), pageWidth - 90);
+    deck::drawTracked(renderer, UI_10_FONT_ID, 18 + 40, ty, path.c_str(), 1, false, false);
+    return;
+  }
   // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery
   // indicator; the rest of the screen renders through the app.
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, folderName.c_str());

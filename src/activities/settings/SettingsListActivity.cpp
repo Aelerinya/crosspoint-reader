@@ -10,6 +10,8 @@
 #include "SettingsActivity.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
+#include "components/themes/extra/DeckScreens.h"
+#include "components/themes/extra/DeckTheme.h"
 
 namespace fui = freeink::ui;
 
@@ -58,10 +60,15 @@ void SettingsListActivity::rebuildRows() {
 
 void SettingsListActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  // Content below the GUI.drawHeader band, above the button hints.
-  screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
-                                                static_cast<int16_t>(metrics.buttonHintsHeight), 0});
-  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  if (deck::listsActive()) {
+    // Deck v2: rows under the illustration panel drawChrome paints (y 50..390).
+    screen.setContentMarginFromScreen(fui::Insets{402, 0, static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  } else {
+    // Content below the GUI.drawHeader band, above the button hints.
+    screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
+                                                  static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+    screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+  }
 
   fui::ListProps props;
   props.items = rowItems_.data();
@@ -103,6 +110,11 @@ void SettingsListActivity::openSection(const SettingsSection section) {
 void SettingsListActivity::onBackButton() { onGoHome(); }
 
 void SettingsListActivity::drawChrome() {
+  if (deck::listsActive()) {
+    deck::drawSmallHeader(renderer, "SETTINGS");
+    deck::drawSettingsPanel(renderer);
+    return;
+  }
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Version rides in the header's trailing label slot: the footer position
   // conflicts with button hints on non-touch devices.

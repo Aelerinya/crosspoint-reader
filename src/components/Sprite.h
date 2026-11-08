@@ -11,11 +11,14 @@ class GfxRenderer;
 struct Sprite {
   int width;
   int height;
-  const uint8_t* runs;
+  const uint8_t* runs;  // black ink
   size_t size;
+  const uint8_t* halo = nullptr;  // optional opaque white (art drawn over UI)
+  size_t haloSize = 0;
 };
 
-// Paints the sprite's ink pixels with top-left at (x, y); white is transparent.
+// Paints the sprite with top-left at (x, y): its halo white, then its ink;
+// everything else is transparent.
 // `black` = false paints the ink white (for use on dark panels).
 void drawSprite(const GfxRenderer& renderer, const Sprite& sprite, int x, int y, bool black = true);
 // Same, mirrored left-right.
