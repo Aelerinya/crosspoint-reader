@@ -614,11 +614,14 @@ void HomeActivity::render(RenderLock&&) {
   coverRectW = content.width;
   coverRectH = metrics.homeCoverTileHeight;
 
-  // A fresh cover draw logs its gray covers; a restored tile reuses the last
-  // log. Every refresh needs the gray pass: some panels (UC8179/UC8279) redrive
-  // all pixels to the B/W frame on the next fast refresh.
+  // Gray cover pass, kept but disabled: after any gray pass the panel drivers
+  // redrive the whole screen on the next refresh, so every menu move redrew the
+  // cover. Thumbs are 1-bit again (Epub::generateThumbBmpForCover), as upstream.
+  // When enabled, a fresh cover draw logs its gray covers and a restored tile
+  // reuses the last log.
   std::vector<BaseTheme::GrayCover> drawnCovers;
-  const bool grayPass = !grayPassFailed && renderer.grayscaleCapabilities().supported();
+  constexpr bool kHomeGrayCovers = false;
+  const bool grayPass = kHomeGrayCovers && !grayPassFailed && renderer.grayscaleCapabilities().supported();
   if (grayPass) BaseTheme::grayCoverLog = &drawnCovers;
   GUI.drawRecentBookCover(renderer, Rect{content.x, metrics.homeTopPadding, content.width, metrics.homeCoverTileHeight},
                           recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
