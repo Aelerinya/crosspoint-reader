@@ -123,13 +123,13 @@ The Browse Files screen acts as a file and folder browser. The full path to the 
 * **Open Selection:** Press **Confirm** to open a folder or start reading a selected book. Selecting a `.bmp` file will open the image viewer.
 * **Delete Files or Folders:** Hold and release **Confirm** to delete the selected file or folder. You will be given an option to either confirm or cancel. Multiple files can be selected for deletion in a single operation.
 * **Rename or Move:** Files can be renamed or moved to a different folder from within the browse screen.
-* **Send to Reader:** Hold **Confirm** on a book and choose **Send to Reader** to copy it over Wi-Fi to a nearby reader. On the other reader, open **File Transfer > Create Hotspot** (CrossPoint) or **Upgrade/Transfer > Phone Transfer** (stock Xteink) first, then pick that reader's hotspot from the list. Default reader hotspots are at the top, shown as "Xteink reader" or "CrossPoint reader"; other networks are listed by name, and you are asked for a password if needed. Nothing is joined until you pick a network, and on a network that is not a reader's own hotspot only a CrossPoint reader is recognised. The book goes to its `/Books` folder. If a CrossPoint reader already has the book, you are asked before it is replaced.
+* **Send to Reader:** Hold **Confirm** on a book and choose **Send to Reader** to copy it over Wi-Fi to a nearby reader. The same option is in the Library's **Recent** tab and in the reader menu. On the other reader, open **File Transfer > Create Hotspot** (CrossPoint) or **Upgrade/Transfer > Phone Transfer** (stock Xteink) first, then pick that reader's hotspot from the list. Default reader hotspots are at the top, shown as "Xteink reader" or "CrossPoint reader"; other networks are listed by name, and you are asked for a password if needed. Nothing is joined until you pick a network, and on a network that is not a reader's own hotspot only a CrossPoint reader is recognised. The book goes to its `/Books` folder. If a CrossPoint reader already has the book, you are asked before it is replaced.
 
 ### 3.4 Library Screen
 
 The Library indexes up to 4,096 supported books on the SD card and shows their titles and authors without requiring you to remember their folders. Its four tabs provide different views. An arrow beside an indexed tab shows the sort direction:
 
-- **Recent** lists the ten books you opened most recently. Hold a book to remove it from this list.
+- **Recent** lists the ten books you opened most recently. Hold a book for its options: open it, send it to another reader, remove it from this list, refresh the Library, or delete it.
 - **Added** keeps books in the order in which the Library first discovered them. Down shows newest additions first; up shows oldest first.
 - **Title** groups books by the first letter of the title. Up sorts A-Z and down sorts Z-A. Titles beginning with numbers or punctuation appear under `#`; letters from non-English scripts, including Hebrew, have their own groups.
 - **Author** lists the authors, each with how many books they have. Up sorts A-Z and down sorts Z-A. Press **Confirm** on an author to see only their books; **Back** returns to the author list.
@@ -561,7 +561,7 @@ Once any of the options above is set up, press **Confirm** while reading to open
 
 #### 3.6.8 Bookplate (Send to Reader)
 
-Hold **Confirm** on a book in the file browser and choose **Send to Reader** to send it over Wi-Fi to another reader that is showing its transfer hotspot. The copy you send can carry a bookplate: an "Ex libris" page after the cover with the book's title, your name, and the date. Your own copy is not changed.
+Hold **Confirm** on a book in the file browser (or use the Library's Recent tab or the reader menu) and choose **Send to Reader** to send it over Wi-Fi to another reader that is showing its transfer hotspot. The copy you send can carry a bookplate: an "Ex libris" page after the cover with the book's title, your name, and the date. Your own copy is not changed.
 
 - **Your Name**: the name signed on the bookplate. No bookplate is added while it is empty.
 - **Bookplate When Sending**: on by default.
@@ -724,6 +724,7 @@ Available options include:
 - **Go to %** – Jump to a specific position in the book by percentage.
 - **Take screenshot** – Save a screenshot of the current page to the `screenshots/` folder.
 - **Show page as QR** – Display a QR code encoding the current reading position.
+- **Send to Reader** – Send this book over Wi-Fi to a nearby reader (see Send to Reader in the file browser section). Your place is saved first; afterwards the reader restarts briefly and reopens the book.
 - **Go Home** – Close the book and return to the Home screen.
 - **Sync Progress** – Push or pull reading progress with a KOReader sync server (see [KOReader Sync Quick Setup](#367-koreader-sync-quick-setup)). This entry appears when sync credentials are saved or an enabled plugin subscribes to device events. Without sync credentials, it connects to Wi-Fi to send queued plugin events.
 - **Delete Book Cache** – Clear the cached layout data for the current book, forcing a re-index on next open.

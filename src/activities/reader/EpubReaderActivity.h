@@ -216,6 +216,7 @@ class EpubReaderActivity final : public ReaderActivity {
   void openClippings();
   void applyProgressChange(const ProgressChangeResult& progress);
   bool launchKOReaderSync();
+  void launchSendToReader();
   unsigned long confirmLongPressThreshold() const;
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void loadCachedBookmarks();

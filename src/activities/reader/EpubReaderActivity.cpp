@@ -51,6 +51,7 @@
 #include "SdCardFont.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
+#include "activities/network/SendBookActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/settings/TextSettingsActivity.h"
 #include "clippings/ClippingText.h"
@@ -1281,6 +1282,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       requestUpdate();
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::SEND_TO_READER: {
+      launchSendToReader();
+      return;
+    }
     case EpubReaderMenuActivity::MenuAction::GO_HOME: {
       onGoHome();
       return;
@@ -1411,6 +1416,37 @@ bool EpubReaderActivity::launchKOReaderSync() {
   activityManager.replaceActivity(std::make_unique<KOReaderSyncActivity>(
       renderer, mappedInput, savedEpubPath, localPos, std::move(localKoPos), std::move(localChapterName)));
   return true;
+}
+
+// Like launchKOReaderSync: the send flow ends in a silent restart into this book, so
+// save everything and free the book before Wi-Fi starts.
+void EpubReaderActivity::launchSendToReader() {
+  auto sender = makeUniqueNoThrow<SendBookActivity>(renderer, mappedInput, epub->getPath(), epub->getTitle(),
+                                                    /*fromReader=*/true);
+  if (!sender) {
+    LOG_ERR("ERS", "OOM: send activity");
+    requestUpdate();
+    return;
+  }
+  flushReaderSession();
+  RenderLock renderLock;
+  const int currentPage = section ? section->currentPage : nextPageNumber;
+  const int totalPages = section ? section->estimatedTotalPages() : cachedChapterTotalPageCount;
+  if (!saveProgress(currentSpineIndex, currentPage, totalPages)) {
+    LOG_ERR("ERS", "Not sending: current progress could not be saved");
+    requestUpdate();
+    return;
+  }
+  if (section) nextPageNumber = section->currentPage;
+  discardOverlayPage();
+  ImageBlock::releaseRenderCache();
+  ImageBlock::setExtractor(nullptr, nullptr);
+  section.reset();
+  if (auto* fcm = renderer.getFontCacheManager()) fcm->releaseSdFontCaches();
+  // The destructor can no longer save the back-stack once epub is gone.
+  if (footnoteDepth > 0) saveLinkStack();
+  epub.reset();
+  activityManager.replaceActivity(std::move(sender));
 }
 
 void EpubReaderActivity::applyInitialOrientation() {

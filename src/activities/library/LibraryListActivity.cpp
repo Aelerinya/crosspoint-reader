@@ -20,6 +20,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "RecentBooksStore.h"
+#include "activities/network/SendBookActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/Sprite.h"
@@ -28,6 +29,7 @@
 #include "components/icons/headerIcons.h"
 #include "components/icons/listIcons.h"
 #include "components/icons/search32.h"
+#include "components/themes/extra/DeckList.h"
 #include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
 #include "images/DeckOperator.h"
@@ -278,17 +280,18 @@ void LibraryListActivity::showRecentBookOptions(const int entry) {
 
   std::string path;
   std::string title;
+  std::string author;
   const bool isStoreRow = entry < pinnedCount();
   if (isStoreRow) {
     const auto& books = RECENT_BOOKS.getBooks();
     if (entry >= static_cast<int>(books.size())) return;
     path = books[static_cast<size_t>(entry)].path;
     title = books[static_cast<size_t>(entry)].title;
+    author = books[static_cast<size_t>(entry)].author;
   } else {
     if (!index.isOpen()) return;
     const uint16_t ordinal = index.ordinalForRow(sortOrder, static_cast<uint16_t>(rowFor(entry)));
     library::ClixRecord record{};
-    std::string author;
     if (ordinal == 0xFFFF || !index.readRecord(ordinal, record) || !index.readPath(record, path) ||
         !rowTextFor(entry, title, author)) {
       LOG_ERR("LIB", "cannot resolve Recent row %d", entry);
@@ -296,37 +299,56 @@ void LibraryListActivity::showRecentBookOptions(const int entry) {
     }
   }
 
-  const char* STORE_OPTIONS[] = {tr(STR_OPEN), tr(STR_REMOVE_FROM_RECENTS), tr(STR_DELETE), tr(STR_LIBRARY_REBUILD)};
-  const char* INDEX_OPTIONS[] = {tr(STR_OPEN), tr(STR_DELETE), tr(STR_LIBRARY_REBUILD)};
+  enum Action { OPEN, SEND, REMOVE_RECENT, REBUILD, DELETE };
+  static constexpr Action STORE_ACTIONS[] = {OPEN, SEND, REMOVE_RECENT, REBUILD, DELETE};
+  static constexpr Action INDEX_ACTIONS[] = {OPEN, SEND, REBUILD, DELETE};
+  const char* STORE_OPTIONS[] = {tr(STR_OPEN), tr(STR_SEND_TO_READER), tr(STR_REMOVE_FROM_RECENTS),
+                                 tr(STR_LIBRARY_REBUILD), tr(STR_DELETE)};
+  const char* INDEX_OPTIONS[] = {tr(STR_OPEN), tr(STR_SEND_TO_READER), tr(STR_LIBRARY_REBUILD), tr(STR_DELETE)};
   app.clearTapFlash();
-  optionPopup.show(tr(STR_LIBRARY), title.c_str(), isStoreRow ? STORE_OPTIONS : INDEX_OPTIONS, isStoreRow ? 4 : 3, 0,
+  optionPopup.show(tr(STR_LIBRARY), title.c_str(), isStoreRow ? STORE_OPTIONS : INDEX_OPTIONS, isStoreRow ? 5 : 4, 0,
                    [this, path, title, isStoreRow](const int choice) {
                      swallowHeldReleases();
-                     switch (choice) {
-                       case 0:
+                     switch ((isStoreRow ? STORE_ACTIONS : INDEX_ACTIONS)[choice]) {
+                       case OPEN:
                          openBookByPath(path);
                          break;
-                       case 1:
-                         if (isStoreRow) {
-                           promptRemoveRecentBook(path, title);
-                         } else {
-                           promptDeleteBookByPath(path, title);
-                         }
+                       case SEND:
+                         sendBookByPath(path, title);
                          break;
-                       case 2:
-                         if (isStoreRow)
-                           promptDeleteBookByPath(path, title);
-                         else
-                           promptRebuildIndex();
+                       case REMOVE_RECENT:
+                         promptRemoveRecentBook(path, title);
                          break;
-                       case 3:
-                         if (isStoreRow) promptRebuildIndex();
+                       case REBUILD:
+                         promptRebuildIndex();
                          break;
-                       default:
+                       case DELETE:
+                         promptDeleteBookByPath(path, title);
                          break;
                      }
                    });
+  if (deck::listsActive()) {
+    // Deck sheet header: cover, title, "AUTHOR · 3% READ".
+    std::string meta = author;
+    const int progress = loadBookProgress(path);
+    if (progress >= 0) {
+      if (!meta.empty()) meta += " \xc2\xb7 ";
+      meta += std::to_string(progress) + "% READ";
+    }
+    // The row thumb, if made; no worker request while the sheet is up.
+    optionPopup.setBookSheet(deck::BookCardInfo{title, std::move(meta), deck::cachedBookThumb(path)});
+  }
   requestUpdate();
+}
+
+void LibraryListActivity::sendBookByPath(const std::string& path, const std::string& title) {
+  auto sender = makeUniqueNoThrow<SendBookActivity>(renderer, mappedInput, path, title);
+  if (!sender) {
+    LOG_ERR("LIB", "OOM: send activity");
+    return;
+  }
+  stopCoverWorker();  // it would write the same cover thumb as the send screen
+  startActivityForResult(std::move(sender), [this](const ActivityResult&) { resumeCoverWorker(); });
 }
 
 #if FREEINK_CAP_TOUCH

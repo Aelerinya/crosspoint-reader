@@ -24,6 +24,9 @@ python3 ../../../scripts/convert_sprites.py ../DeckOperator.h \
   kOpPressL=poses/press.png:x262 \
   kOpScan=poses/scan.png:x430 \
   kOpScanS=poses/scan.png:x250 \
+  kOpScanM=poses/scan.png:x340 \
   kOpFail=poses/fail.png:x440 \
   kOpLens=poses/lens.png:x222 \
-  kOpTorch=poses/flash.png:x280
+  kOpTorch=poses/flash.png:x280 \
+  kOpThrow=poses/throw.png:x340 \
+  kOpTrophy=poses/trophy.png:x410

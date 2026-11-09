@@ -20,6 +20,7 @@
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
+#include "components/themes/extra/DeckList.h"
 #include "components/themes/extra/DeckScreens.h"
 #include "components/themes/extra/DeckTheme.h"
 #include "fontIds.h"
@@ -388,22 +389,49 @@ void FileBrowserActivity::showEntryActions() {
   }
 
   const bool isDirectory = files[nav.selected].back() == '/';
-  static constexpr StrId FILE_OPTIONS[] = {StrId::STR_OPEN, StrId::STR_DELETE, StrId::STR_RENAME,
-                                           StrId::STR_SEND_TO_READER};
+  enum Action { OPEN, SEND, RENAME, DELETE };
+  static constexpr StrId FILE_OPTIONS[] = {StrId::STR_OPEN, StrId::STR_SEND_TO_READER, StrId::STR_RENAME,
+                                           StrId::STR_DELETE};
+  static constexpr Action FILE_ACTIONS[] = {OPEN, SEND, RENAME, DELETE};
   static constexpr StrId DIRECTORY_OPTIONS[] = {StrId::STR_OPEN, StrId::STR_DELETE};
+  static constexpr Action DIRECTORY_ACTIONS[] = {OPEN, DELETE};
   optionPopup.show(StrId::STR_FILENAME, isDirectory ? DIRECTORY_OPTIONS : FILE_OPTIONS, isDirectory ? 2 : 4, 0,
-                   [this](const int index) {
-                     if (index == 0) {
-                       activateSelected();
-                     } else if (index == 1) {
-                       deleteSelected();
-                     } else if (index == 2) {
-                       startRename();
-                     } else if (index == 3) {
-                       sendSelected();
+                   [this, isDirectory](const int index) {
+                     switch ((isDirectory ? DIRECTORY_ACTIONS : FILE_ACTIONS)[index]) {
+                       case OPEN:
+                         activateSelected();
+                         break;
+                       case SEND:
+                         sendSelected();
+                         break;
+                       case RENAME:
+                         startRename();
+                         break;
+                       case DELETE:
+                         deleteSelected();
+                         break;
                      }
                    });
+  if (!isDirectory && deck::listsActive()) showBookSheet(files[nav.selected]);
   requestUpdate();
+}
+
+// Deck: head the options with the book (cover, name, "EPUB · 2.1 MB · /BOOKS").
+void FileBrowserActivity::showBookSheet(const std::string& entry) {
+  std::string folder = basepath;
+  if (folder.back() != '/') folder += "/";
+  const std::string fullPath = folder + entry;
+  const size_t dot = entry.rfind('.');
+  std::string meta = dot == std::string::npos ? std::string() : entry.substr(dot + 1);
+  HalFile file;
+  if (Storage.openFileForRead("FileBrowser", fullPath, file)) {
+    if (!meta.empty()) meta += " \xc2\xb7 ";
+    meta += deck::formatBookSize(static_cast<uint32_t>(file.fileSize()));
+    file.close();
+  }
+  meta += " \xc2\xb7 " + (folder.size() > 1 ? folder.substr(0, folder.size() - 1) : folder);
+  optionPopup.setBookSheet(deck::BookCardInfo{dot == std::string::npos ? entry : entry.substr(0, dot), std::move(meta),
+                                              deck::cachedBookThumb(fullPath)});
 }
 
 void FileBrowserActivity::deleteSelected() {

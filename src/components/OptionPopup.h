@@ -11,6 +11,8 @@
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
+#include "components/themes/extra/DeckList.h"
+#include "components/themes/extra/DeckScreens.h"
 
 // Modal option picker drawn over the current screen (no clear) via
 // fui::optionDialog. Touch hit-testing is the SDK's InteractionBuffer: each
@@ -70,6 +72,14 @@ class OptionPopup {
     headline.clear();
     ownedStrings = options;
     activate(currentIndex, std::move(onSelect));
+  }
+
+  // Deck: draw as a bottom sheet headed by this book. Call right after show(),
+  // which clears it; ignored while no popup is up.
+  void setBookSheet(deck::BookCardInfo info) {
+    if (!active) return;
+    book = std::move(info);
+    bookSheet = true;
   }
 
   bool handleInput(MappedInputManager& input, const std::function<void()>& requestUpdate) {
@@ -152,6 +162,13 @@ class OptionPopup {
   bool processRender(GfxRenderer& renderer, const MappedInputManager& input) const {
     if (!active) return false;
     const auto popupLabels = input.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+    if (deckSheet()) {
+      // The sheet's shade covers the key bar area, so the hints go on top.
+      render(renderer);
+      GUI.drawButtonHints(renderer, popupLabels.btn1, popupLabels.btn2, popupLabels.btn3, popupLabels.btn4);
+      renderer.displayBuffer();
+      return true;
+    }
     GUI.drawButtonHints(renderer, popupLabels.btn1, popupLabels.btn2, popupLabels.btn3, popupLabels.btn4);
     render(renderer);
     renderer.displayBuffer();
@@ -160,6 +177,13 @@ class OptionPopup {
 
   void render(const GfxRenderer& renderer) const {
     if (!active) return;
+    if (deckSheet()) {
+      // Button boards only (deck::listsActive), so no touch table to publish.
+      const int count = std::min<int>(ownedStrings.size(), MAX_OPTIONS);
+      deck::drawOptionSheet(
+          renderer, book, std::vector<std::string>(ownedStrings.begin(), ownedStrings.begin() + count), selectedIndex);
+      return;
+    }
     namespace fui = freeink::ui;
 
     // Per-render target: a GfxRendererTarget is a renderer reference plus
@@ -281,11 +305,16 @@ class OptionPopup {
     selectedIndex = currentIndex >= 0 && currentIndex < count ? currentIndex : 0;
     onSelectCallback = std::move(onSelect);
     message.clear();
+    bookSheet = false;
     uiReady = false;
     active = count > 0;
   }
 
+  bool deckSheet() const { return bookSheet && deck::listsActive(); }
+
   bool active = false;
+  bool bookSheet = false;
+  deck::BookCardInfo book;
   std::string title;
   std::string headline;
   std::string message;

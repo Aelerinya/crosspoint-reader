@@ -15,6 +15,18 @@ namespace deck {
 
 namespace {
 int capOf(const int size) { return size * 150 * 70 / 7200; }
+
+// truncatedText measures plain text; shorten until the tracked width fits too.
+std::string truncateTracked(const GfxRenderer& r, const int font, const std::string& text, const int maxW,
+                            const int tracking) {
+  int limit = maxW;
+  std::string shown = r.truncatedText(font, text.c_str(), limit, EpdFontFamily::BOLD);
+  while (limit > 20 && trackedWidth(r, font, shown.c_str(), tracking, true) > maxW) {
+    limit -= 8;
+    shown = r.truncatedText(font, text.c_str(), limit, EpdFontFamily::BOLD);
+  }
+  return shown;
+}
 }  // namespace
 
 int drawBigTitle(const GfxRenderer& r, const int capTop, const char* title, const char* kana, const int size) {
@@ -102,17 +114,17 @@ int drawKeyboardPreview(const GfxRenderer& r, const int y, const uint8_t layoutI
   return ky;
 }
 
-void drawStatePanel(const GfxRenderer& r, const char* title, const char* kana) {
-  // Black panel x 16..440, y 61..170, top-right corner cut.
+void drawStatePanel(const GfxRenderer& r, const char* title, const char* kana, const int top) {
+  // Black panel x 16..440, 109 px tall from `top` (61 by default), top-right corner cut.
   const int xs[] = {16, 410, 440, 440, 16};
-  const int ys[] = {61, 61, 91, 170, 170};
+  const int ys[] = {top, top, top + 30, top + 109, top + 109};
   r.fillPolygon(xs, ys, 5, true);
   const std::string t = upper(title ? title : "");
   // 46 when it fits next to the kana, else the 31 face.
   const int maxW = 440 - 34 - 70;
   const int size = r.getTextWidth(displayFont(46), t.c_str()) <= maxW ? 46 : 31;
   const int font = displayFont(size);
-  const int capTop = 61 + (109 - capOf(size)) / 2;
+  const int capTop = top + (109 - capOf(size)) / 2;
   const std::string shown = r.truncatedText(font, t.c_str(), maxW);
   r.drawText(font, 34, capTop - displayCapOffset(r, size), shown.c_str(), false);
   if (!kana) kana = kanaFor(t);
@@ -123,7 +135,7 @@ int drawArrowTag(const GfxRenderer& r, const int x, const int y, const char* tex
   const std::string t = upper(text ? text : "");
   const int font = UI_10_FONT_ID;
   const int maxW = r.getScreenWidth() - x - 60;
-  const std::string shown = r.truncatedText(font, t.c_str(), maxW, EpdFontFamily::BOLD);
+  const std::string shown = truncateTracked(r, font, t, maxW, 2);
   const int tw = trackedWidth(r, font, shown.c_str(), 2, true);
   const int h = r.getLineHeight(font) + 14;
   const int xs[] = {x, x + tw + 24, x + tw + 24 + h / 2, x + tw + 24, x};
@@ -136,7 +148,7 @@ int drawArrowTag(const GfxRenderer& r, const int x, const int y, const char* tex
 int drawBlockTag(const GfxRenderer& r, const int x, const int y, const char* text) {
   const std::string t = upper(text ? text : "");
   const int font = UI_10_FONT_ID;
-  const std::string shown = r.truncatedText(font, t.c_str(), r.getScreenWidth() - x - 40, EpdFontFamily::BOLD);
+  const std::string shown = truncateTracked(r, font, t, r.getScreenWidth() - x - 40, 2);
   const int tw = trackedWidth(r, font, shown.c_str(), 2, true);
   const int h = r.getLineHeight(font) + 14;
   r.fillRect(x, y, tw + 24, h, true);

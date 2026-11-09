@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
+#include <vector>
 
 class GfxRenderer;
 #include "components/themes/BaseTheme.h"
@@ -54,9 +56,9 @@ void drawKeyCap(const GfxRenderer& renderer, int x, int y, int w, int h, const c
                 bool focused, int font);
 // "// PREVIEW · caption" and the layout's first three letter rows; returns the bottom.
 int drawKeyboardPreview(const GfxRenderer& renderer, int y, uint8_t layoutId, const char* caption);
-// Black state panel (SCANNING / CONNECTING / FAILED / CALIBRE) at y 61..170 with the
+// Black state panel (SCANNING / CONNECTING / FAILED / CALIBRE) at y top..top+109 with the
 // title in display face and a kana superscript (looked up when null).
-void drawStatePanel(const GfxRenderer& renderer, const char* title, const char* kana = nullptr);
+void drawStatePanel(const GfxRenderer& renderer, const char* title, const char* kana = nullptr, int top = 61);
 // Black tags with tracked white text at (x, y): pointed right end / plain block. Return the height.
 int drawArrowTag(const GfxRenderer& renderer, int x, int y, const char* text);
 int drawBlockTag(const GfxRenderer& renderer, int x, int y, const char* text);
@@ -69,4 +71,27 @@ void drawOutlineTag(const GfxRenderer& renderer, int right, int cy, const char* 
 void drawJoinLoading(const GfxRenderer& renderer);
 // Diagonal hatch over the whole frame (modal backdrop).
 void hatchShade(const GfxRenderer& renderer);
+
+// Send to Reader and the book options sheet (DeckSend.cpp).
+struct BookCardInfo {
+  std::string title;
+  std::string meta;   // "EPUB · 2.1 MB", "EPUB · 2.1 MB · /BOOKS", "AUTHOR · 3% READ"
+  std::string cover;  // thumbnail BMP, empty = hatched placeholder
+};
+// Cover thumb height shared with the Library rows (its cache files are reused).
+constexpr int kBookThumbHeight = 74;
+std::string formatBookSize(uint32_t bytes);
+// The book's cached kBookThumbHeight thumb, or empty when there is none yet.
+std::string cachedBookThumb(const std::string& bookPath);
+// Cover BMP centred and clipped in the slot, 1 px frame; hatch when missing.
+void drawBookCover(const GfxRenderer& renderer, const std::string& path, int x, int y, int w, int h);
+// Outlined e-reader icon.
+void drawReaderGlyph(const GfxRenderer& renderer, int x, int y, int w, int h, bool black = true);
+// "// SENDING", cover, title, meta and a rule (y 52..136); returns its bottom.
+int drawSendBookCard(const GfxRenderer& renderer, const BookCardInfo& book);
+// Display-face words wrapped in `width`, a ">" word drawn as a triangle; returns the bottom.
+int drawRouteText(const GfxRenderer& renderer, int x, int capTop, int width, const std::string& text);
+// Bottom sheet over a hatch shade: book header, then the option rows.
+void drawOptionSheet(const GfxRenderer& renderer, const BookCardInfo& book, const std::vector<std::string>& options,
+                     int selected);
 }  // namespace deck

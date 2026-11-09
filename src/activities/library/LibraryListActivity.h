@@ -110,8 +110,9 @@ class LibraryListActivity final : public UiTabListActivity {
   void openBookByPath(const std::string& path);
   void promptRebuildIndex();
   void resetAfterRebuild();
-  // Recent-row long-press menu: open / remove from recents / delete / rebuild.
+  // Recent-row long-press menu: open / send / remove from recents / rebuild / delete.
   void showRecentBookOptions(int entry);
+  void sendBookByPath(const std::string& path, const std::string& title);
   void promptRemoveRecentBook(const std::string& path, const std::string& title);
   // Long-press delete owns the gesture where grouping does not apply: the
   // Recent sort, degraded lists, any active search result, and an open author.

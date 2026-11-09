@@ -97,6 +97,7 @@ void EpubReaderMenuActivity::buildMenuItems(std::vector<MenuItem>& items, const 
   items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
   items.push_back({MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON});
   items.push_back({MenuAction::DISPLAY_QR, StrId::STR_DISPLAY_QR});
+  items.push_back({MenuAction::SEND_TO_READER, StrId::STR_SEND_TO_READER});
   items.push_back({MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON});
   bool canSync = KOREADER_STORE.hasCredentials();
   for (size_t event = 0; !canSync && event < static_cast<size_t>(pluginevents::Event::COUNT); ++event) {
