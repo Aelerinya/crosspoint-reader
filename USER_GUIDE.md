@@ -158,6 +158,8 @@ Download links for files already on the device are available in the web interfac
 
 A **Wi-Fi signal strength indicator** (dBm) is displayed on-screen during joined-network web server sessions.
 
+While a file is uploading from the web page, the Calibre plugin or `curl` (`POST /upload`), the screen shows its name and progress, then how many files have arrived in this session and the name of the last one. WebDAV and font uploads are not shown.
+
 > [!TIP]
 > Advanced users can also manage files programmatically or via the command line using `curl`. See the [web server docs](./docs/webserver.md) for details.
 > [!TIP]

@@ -41,6 +41,16 @@ class CrossPointWebServer {
     // Overwriting an existing file: data goes to "<file>.part", which replaces
     // the file only after the whole upload is written.
     bool staged = false;
+    // Progress for getUploadStatus(). inProgress: between a file's START and its END or abort.
+    bool inProgress = false;
+    // Request Content-Length (multipart framing included, 0 when not sent) and the
+    // file bytes received so far in this request, across all its file parts.
+    size_t requestLength = 0;
+    size_t requestReceived = 0;
+    bool requestOpen = false;  // a file part of the current request has started
+    uint32_t completedCount = 0;
+    String lastCompleteName;
+    unsigned long lastCompleteAt = 0;
 
     // Upload write buffer - batches small writes into larger SD card operations
     // 4KB is a good balance: large enough to reduce syscall overhead, small enough
@@ -67,9 +77,26 @@ class CrossPointWebServer {
 
   WsUploadStatus getWsUploadStatus() const;
 
+  // For the transfer screen: the HTTP (POST /upload) or WebSocket upload in
+  // progress, and files stored by either since the server started. HTTP numbers
+  // cover the whole request when it has a Content-Length; filename is the current part.
+  struct UploadStatus {
+    bool inProgress = false;
+    size_t received = 0;
+    size_t total = 0;  // 0 when unknown
+    std::string filename;
+    uint32_t completedCount = 0;
+    std::string lastCompleteName;
+  };
+  UploadStatus getUploadStatus() const;
+
   // An HTTP upload holds handleClient() until its body is read, so this is polled on each chunk.
   // Returning true drops the client: the upload aborts and its partial file is removed.
   void setUploadCancelCheck(std::function<bool()> check) { uploadCancelCheck = std::move(check); }
+
+  // Called on each HTTP upload event (start, every chunk, end, abort), inside handleClient().
+  // Keep it cheap: it runs between body reads.
+  void setUploadProgressHook(std::function<void()> hook) { uploadProgressHook = std::move(hook); }
 
   // Get the port number
   uint16_t getPort() const { return port; }
@@ -86,6 +113,7 @@ class CrossPointWebServer {
   void closeDiscoverySocket();
   void answerDiscovery() const;
   std::function<bool()> uploadCancelCheck;
+  std::function<void()> uploadProgressHook;
   bool dropUploadIfCancelled() const;
 
   // WebSocket upload state

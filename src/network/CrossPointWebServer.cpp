@@ -140,6 +140,7 @@ size_t wsLastProgressSent = 0;
 String wsLastCompleteName;
 size_t wsLastCompleteSize = 0;
 unsigned long wsLastCompleteAt = 0;
+uint32_t wsCompletedCount = 0;
 // millis() of each client's last event, 0 for a free slot.
 uint32_t wsLastActivity[WEBSOCKETS_SERVER_CLIENT_MAX] = {};
 
@@ -375,6 +376,10 @@ void CrossPointWebServer::begin() {
     LOG_DBG("WEB", "Web server already running");
     return;
   }
+  // WebSocket completions live in file-scope globals: count only this server's.
+  wsCompletedCount = 0;
+  wsLastCompleteName = "";
+  wsLastCompleteAt = 0;
 
   // Check if we have a valid network connection (either STA connected or AP mode)
   const wifi_mode_t wifiMode = WiFi.getMode();
@@ -662,6 +667,28 @@ CrossPointWebServer::WsUploadStatus CrossPointWebServer::getWsUploadStatus() con
   status.lastCompleteName = wsLastCompleteName.c_str();
   status.lastCompleteSize = wsLastCompleteSize;
   status.lastCompleteAt = wsLastCompleteAt;
+  return status;
+}
+
+CrossPointWebServer::UploadStatus CrossPointWebServer::getUploadStatus() const {
+  UploadStatus status;
+  if (upload.inProgress) {
+    status.inProgress = true;
+    // With a Content-Length, count the whole request so several files in one POST add up.
+    status.total = upload.requestLength;
+    status.received = upload.requestLength > 0 ? upload.requestReceived : upload.size;
+    status.filename = upload.fileName.c_str();
+  } else if (wsUploadInProgress) {
+    status.inProgress = true;
+    status.received = wsUploadReceived;
+    status.total = wsUploadSize;
+    status.filename = wsUploadFileName.c_str();
+  }
+  status.completedCount = upload.completedCount + wsCompletedCount;
+  // The more recent of the two (wrap-safe millis comparison).
+  const bool httpIsLatest = upload.lastCompleteAt != 0 &&
+                            (wsLastCompleteAt == 0 || static_cast<long>(upload.lastCompleteAt - wsLastCompleteAt) >= 0);
+  status.lastCompleteName = httpIsLatest ? upload.lastCompleteName.c_str() : wsLastCompleteName.c_str();
   return status;
 }
 
@@ -1014,6 +1041,13 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
   }
 
   const HTTPUpload& upload = server->upload();
+  // Report every exit of this event, early returns included.
+  struct ProgressNotify {
+    const std::function<void()>& hook;
+    ~ProgressNotify() {
+      if (hook) hook();
+    }
+  } progressNotify{uploadProgressHook};
 
   if (upload.status == UPLOAD_FILE_START) {
     // Reset watchdog - this is the critical 1% crash point
@@ -1024,6 +1058,13 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     state.success = false;
     state.error = "";
     state.staged = false;
+    state.inProgress = false;
+    state.requestLength = server->clientContentLength() > 0 ? server->clientContentLength() : 0;
+    if (!state.requestOpen) {
+      // First file part of a request: a malformed earlier one may have skipped the reset.
+      state.requestReceived = 0;
+      state.requestOpen = true;
+    }
     uploadStartTime = millis();
     lastLoggedSize = 0;
     state.bufferPos = 0;
@@ -1093,6 +1134,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       return;
     }
     resetTaskWatchdogIfSubscribed();
+    state.inProgress = true;
 
     LOG_DBG("WEB", "[UPLOAD] File created successfully: %s", uploadWritePath(state).c_str());
   } else if (upload.status == UPLOAD_FILE_WRITE) {
@@ -1116,6 +1158,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
         if (state.bufferPos >= UploadState::UPLOAD_BUFFER_SIZE) {
           if (!flushUploadBuffer(state)) {
             state.error = "Failed to write to SD card - disk may be full";
+            state.inProgress = false;
             state.file.close();
             state.buffer.reset();
             removeUploadedFile(state);
@@ -1125,6 +1168,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       }
 
       state.size += upload.currentSize;
+      state.requestReceived += upload.currentSize;
 
       // Log progress every 100KB
       if (state.size - lastLoggedSize >= 102400) {
@@ -1136,6 +1180,7 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
       }
     }
   } else if (upload.status == UPLOAD_FILE_END) {
+    state.inProgress = false;
     if (!server->client().connected()) return;
     if (state.file) {
       // Flush any remaining buffered data
@@ -1166,6 +1211,9 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
 
       if (state.error.isEmpty()) {
         state.success = true;
+        state.completedCount++;
+        state.lastCompleteName = state.fileName;
+        state.lastCompleteAt = millis();
         const unsigned long elapsed = millis() - uploadStartTime;
         const float avgKbps = (elapsed > 0) ? (state.size / 1024.0) / (elapsed / 1000.0) : 0;
         const float writePercent = (elapsed > 0) ? (totalWriteTime * 100.0 / elapsed) : 0;
@@ -1184,6 +1232,9 @@ void CrossPointWebServer::handleUpload(UploadState& state) const {
     }
     state.buffer.reset();
   } else if (upload.status == UPLOAD_FILE_ABORTED) {
+    state.inProgress = false;
+    state.requestReceived = 0;
+    state.requestOpen = false;
     state.bufferPos = 0;  // Discard buffered data
     state.buffer.reset();
     if (state.file) {
@@ -1205,6 +1256,8 @@ void CrossPointWebServer::handleUploadPost(UploadState& state) const {
   // A later POST without a file part must not repeat this result.
   state.success = false;
   state.error = "";
+  state.requestReceived = 0;
+  state.requestOpen = false;
 }
 
 void CrossPointWebServer::handleCreateFolder() const {
@@ -3125,6 +3178,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
             wsLastCompleteName = wsUploadFileName;
             wsLastCompleteSize = 0;
             wsLastCompleteAt = millis();
+            wsCompletedCount++;
             LOG_DBG("WS", "Zero-byte upload complete: %s", filePath.c_str());
             clearBookCache(filePath.c_str());
             if (library::isLibraryBookFile(filePath.c_str())) library::markLibraryIndexDirty();
@@ -3185,6 +3239,7 @@ void CrossPointWebServer::onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* 
         wsLastCompleteName = wsUploadFileName;
         wsLastCompleteSize = wsUploadSize;
         wsLastCompleteAt = millis();
+        wsCompletedCount++;
 
         unsigned long elapsed = millis() - wsUploadStartTime;
         float kbps = (elapsed > 0) ? (wsUploadSize / 1024.0) / (elapsed / 1000.0) : 0;

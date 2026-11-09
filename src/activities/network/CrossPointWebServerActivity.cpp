@@ -9,6 +9,8 @@
 #include <WiFi.h>
 
 #include <cstddef>
+#include <cstdio>
+#include <cstring>
 
 #include "MappedInputManager.h"
 #include "NetworkModeSelectionActivity.h"
@@ -34,6 +36,46 @@ constexpr uint8_t AP_CHANNEL = 1;
 constexpr uint8_t AP_MAX_CONNECTIONS = 4;
 constexpr int QR_CODE_WIDTH = 198;
 constexpr int QR_CODE_HEIGHT = 198;
+
+// Upload progress is sampled at most every 250 ms (the HTTP hook runs on every
+// chunk). Redraws are at least 2 s apart, 4 s for progress alone, so the e-ink
+// refresh (which shares the SPI bus with the SD card) cannot crowd the upload,
+// even for a run of small files. Changes inside the gap are drawn when it ends.
+constexpr unsigned long TRANSFER_POLL_MS = 250;
+constexpr unsigned long TRANSFER_MIN_GAP_MS = 2000;
+constexpr unsigned long TRANSFER_PROGRESS_GAP_MS = 4000;
+
+// Copies a file name without its extension, truncated to the buffer.
+template <size_t N>
+void copyDisplayName(char (&dst)[N], const std::string& src) {
+  size_t len = src.size();
+  const size_t dot = src.find_last_of('.');
+  if (dot != std::string::npos && dot > 0) len = dot;
+  if (len > N - 1) len = N - 1;
+  memcpy(dst, src.data(), len);
+  dst[len] = '\0';
+}
+
+// "676 / 726 KB" or "1.2 / 3.4 MB" (both in the larger unit); just the received bytes when total is 0.
+std::string formatProgress(const size_t received, const size_t total) {
+  const size_t scale = total > 0 ? total : received;
+  const bool mb = scale >= 1024 * 1024;
+  const double unit = mb ? 1024.0 * 1024.0 : 1024.0;
+  const char* fmt = mb ? "%.1f" : "%.0f";
+  char a[16];
+  char b[16];
+  snprintf(a, sizeof(a), fmt, received / unit);
+  if (total == 0) return std::string(a) + (mb ? " MB" : " KB");
+  snprintf(b, sizeof(b), fmt, total / unit);
+  return std::string(a) + " / " + b + (mb ? " MB" : " KB");
+}
+
+// Content-Length includes the multipart framing, so hold 99% until the file is stored.
+int transferPercent(const size_t received, const size_t total) {
+  if (total == 0) return -1;
+  const auto percent = static_cast<int>(static_cast<uint64_t>(received) * 100 / total);
+  return percent > 99 ? 99 : percent;
+}
 
 // DNS server for captive portal (redirects all DNS queries to our IP)
 DNSServer* dnsServer = nullptr;
@@ -320,6 +362,7 @@ void CrossPointWebServerActivity::startWebServer() {
                      mappedInput.wasPressed(MappedInputManager::Button::Back) || mappedInput.wasHomeGesture();
     return leaveRequested;
   });
+  webServer->setUploadProgressHook([this] { pollTransfer(); });
   webServer->begin();
 
   if (webServer->isRunning()) {
@@ -398,7 +441,7 @@ void CrossPointWebServerActivity::loop() {
       }
     }
 
-    pollReceived();
+    pollTransfer();
 
     // Handle web server requests - maximize throughput with watchdog safety
     if (webServer && webServer->isRunning()) {
@@ -449,39 +492,80 @@ void CrossPointWebServerActivity::loop() {
   }
 }
 
-void CrossPointWebServerActivity::pollReceived() {
-  if (!webServer || !webServer->isRunning()) return;
-  std::string name;
-  const auto ws = webServer->getWsUploadStatus();
-  if (ws.lastCompleteAt != 0 && ws.lastCompleteAt != seenWsCompleteAt) {
-    seenWsCompleteAt = ws.lastCompleteAt;
-    name = ws.lastCompleteName;
+void CrossPointWebServerActivity::pollTransfer() {
+  if (!webServer || !webServer->isRunning() || leaveRequested) return;
+  const unsigned long now = millis();
+  if (now - lastTransferPoll < TRANSFER_POLL_MS) return;
+  lastTransferPoll = now;
+
+  const auto status = webServer->getUploadStatus();
+  char name[sizeof(transfer.name)] = "";
+  if (status.inProgress) copyDisplayName(name, status.filename);
+
+  // Only this task writes `transfer`, so reading it here needs no lock.
+  const bool changed = status.completedCount != transfer.count || status.inProgress != transfer.active ||
+                       (status.inProgress && strcmp(name, transfer.name) != 0);
+  const bool progressed = status.inProgress && status.received != transfer.received;
+  if (changed || progressed) {
+    const bool store = changed || now - lastTransferDraw >= TRANSFER_PROGRESS_GAP_MS;
+    if (store) {
+      std::lock_guard<std::mutex> guard(transferMutex);
+      transfer.active = status.inProgress;
+      transfer.received = status.received;
+      transfer.total = status.total;
+      memcpy(transfer.name, name, sizeof(name));
+      if (status.completedCount != transfer.count) {
+        transfer.count = status.completedCount;
+        copyDisplayName(transfer.lastName, status.lastCompleteName);
+      }
+      transferDrawPending = true;
+    }
   }
-  const bool httpSuccess = webServer->upload.success;
-  if (httpSuccess && !seenHttpSuccess) name = webServer->upload.fileName.c_str();
-  seenHttpSuccess = httpSuccess;
-  if (name.empty()) return;
-  const size_t dot = name.find_last_of('.');
-  if (dot != std::string::npos && dot > 0) name.resize(dot);
-  receivedName = name;
-  receivedAt = millis();
-  requestUpdate();
+  if (!transferDrawPending) return;
+  if (now - lastTransferDraw < TRANSFER_MIN_GAP_MS) return;
+  transferDrawPending = false;
+  lastTransferDraw = now;
+  // Immediate: during an HTTP upload this runs inside handleClient(), and a
+  // deferred request would wait until the whole body has been read.
+  requestUpdate(true);
 }
 
-void CrossPointWebServerActivity::renderDeck() const {
-  // Deck v2 "Online": waiting (she reads in the window) or a book received (she catches books).
-  const bool received = !receivedName.empty();
+CrossPointWebServerActivity::TransferView CrossPointWebServerActivity::transferSnapshot() const {
+  std::lock_guard<std::mutex> guard(transferMutex);
+  return transfer;
+}
+
+void CrossPointWebServerActivity::renderDeck(const TransferView& tv) const {
+  // Deck v2 "Online": waiting (she reads in the window), or receiving / received (she catches books).
+  const bool received = tv.active || tv.count > 0;
   const std::string host = isApMode ? std::string(AP_HOSTNAME) + ".local" : connectedIP;
   const std::string mode = isApMode ? tr(STR_HOTSPOT_MODE) : connectedSSID;
-  const std::string msg = received ? "RECEIVED \xc2\xb7 " + receivedName : std::string("WAITING FOR FILES...");
-  deck::drawOnlineScreen(renderer, received, mode.c_str(), host.c_str(), msg.c_str());
+  std::string msg;
+  std::string detail;
+  int percent = -1;
+  if (tv.active) {
+    msg = std::string("RECEIVING \xc2\xb7 ") + tv.name;
+    percent = transferPercent(tv.received, tv.total);
+    detail = formatProgress(tv.received, tv.total);
+  } else if (tv.count > 0) {
+    msg = std::string("RECEIVED \xc2\xb7 ") + tv.lastName;
+  } else {
+    msg = "WAITING FOR FILES...";
+  }
+  if (tv.count > 0) {
+    if (!detail.empty()) detail += '\n';
+    detail += std::to_string(tv.count) + (tv.count == 1 ? " FILE IN" : " FILES IN");
+  }
+  deck::drawOnlineScreen(renderer, received, mode.c_str(), host.c_str(), msg.c_str(), tv.active, percent,
+                         detail.c_str());
   const auto labels = mappedInput.mapLabels("STOP", "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
 void CrossPointWebServerActivity::render(RenderLock&&) {
+  const TransferView tv = transferSnapshot();
   if (deck::listsActive() && state == WebServerActivityState::SERVER_RUNNING) {
-    renderDeck();
+    renderDeck(tv);
     renderer.displayBuffer();
     return;
   }
@@ -499,7 +583,7 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
     if (state == WebServerActivityState::SERVER_RUNNING) {
       GUI.drawSubHeader(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
                         connectedSSID.c_str());
-      renderServerRunning();
+      renderServerRunning(tv);
     } else {
       const auto height = renderer.getLineHeight(UI_10_FONT_ID);
       const auto top = (pageHeight - height) / 2;
@@ -509,7 +593,7 @@ void CrossPointWebServerActivity::render(RenderLock&&) {
   }
 }
 
-void CrossPointWebServerActivity::renderServerRunning() const {
+void CrossPointWebServerActivity::renderServerRunning(const TransferView& tv) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
 
@@ -584,8 +668,54 @@ void CrossPointWebServerActivity::renderServerRunning() const {
     renderer.drawCenteredText(SMALL_FONT_ID, startY, hostnameUrl.c_str(), true);
   }
 
+  renderTransferStatus(tv);
+
   const auto labels = mappedInput.mapLabels(tr(STR_EXIT), "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+
+// Current upload (name, bar, bytes) and the last file received, above the button hints.
+void CrossPointWebServerActivity::renderTransferStatus(const TransferView& tv) const {
+  if (!tv.active && tv.count == 0) return;
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int pageWidth = renderer.getScreenWidth();
+  const int x = metrics.contentSidePadding;
+  const int width = pageWidth - 2 * metrics.contentSidePadding;
+  const int lineHeight = renderer.getLineHeight(SMALL_FONT_ID);
+  const int percent = tv.active ? transferPercent(tv.received, tv.total) : -1;
+
+  int blockHeight = 0;
+  if (tv.active) blockHeight += lineHeight + metrics.verticalSpacing;
+  if (percent >= 0) blockHeight += metrics.progressBarHeight + metrics.verticalSpacing;
+  if (tv.active) blockHeight += lineHeight + metrics.verticalSpacing;
+  if (tv.count > 0) blockHeight += lineHeight;
+  int y = renderer.getScreenHeight() - metrics.buttonHintsHeight - metrics.verticalSpacing * 2 - blockHeight;
+  // Keep the block clear of the content above it.
+  renderer.fillRect(0, y - metrics.verticalSpacing, pageWidth, blockHeight + metrics.verticalSpacing, false);
+
+  if (tv.active) {
+    const std::string label = std::string(tr(STR_TRANSFER_RECEIVING)) + tv.name;
+    renderer.drawText(SMALL_FONT_ID, x, y,
+                      renderer.truncatedText(SMALL_FONT_ID, label.c_str(), width, EpdFontFamily::BOLD).c_str(), true,
+                      EpdFontFamily::BOLD);
+    y += lineHeight + metrics.verticalSpacing;
+    if (percent >= 0) {
+      const int fill = (width - 4) * percent / 100;
+      renderer.drawRect(x, y, width, metrics.progressBarHeight);
+      if (fill > 0) renderer.fillRect(x + 2, y + 2, fill, metrics.progressBarHeight - 4);
+      y += metrics.progressBarHeight + metrics.verticalSpacing;
+    }
+    std::string bytes = formatProgress(tv.received, tv.total);
+    if (percent >= 0) bytes += "  (" + std::to_string(percent) + "%)";
+    renderer.drawText(SMALL_FONT_ID, x, y, bytes.c_str());
+    y += lineHeight + metrics.verticalSpacing;
+  }
+  if (tv.count > 0) {
+    char count[48];
+    snprintf(count, sizeof(count), tr(STR_FILES_RECEIVED), static_cast<unsigned>(tv.count));
+    const std::string line = std::string(count) + " \xc2\xb7 " + tv.lastName;
+    renderer.drawText(SMALL_FONT_ID, x, y, renderer.truncatedText(SMALL_FONT_ID, line.c_str(), width).c_str());
+  }
 }
 
 void CrossPointWebServerActivity::renderWifiIndicator(int subHeaderTop) const {

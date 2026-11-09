@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "NetworkModeSelectionActivity.h"
@@ -43,13 +44,27 @@ class CrossPointWebServerActivity final : public Activity {
   // Server status
   std::string connectedIP;
   std::string connectedSSID;  // For STA mode: network name, For AP mode: AP name
-  // Deck theme: last book that arrived over the network (fox.new + its name).
-  std::string receivedName;
-  unsigned long receivedAt = 0;
-  unsigned long seenWsCompleteAt = 0;
-  bool seenHttpSuccess = false;
-  void pollReceived();
-  void renderDeck() const;
+  // What the screen shows about uploads (HTTP POST or WebSocket). Written by the
+  // main task, also from inside an HTTP upload; render() reads a copy taken under
+  // transferMutex. Fixed-size names so nothing allocates under the lock.
+  struct TransferView {
+    bool active = false;
+    size_t received = 0;
+    size_t total = 0;  // 0 when unknown
+    char name[96] = "";
+    uint32_t count = 0;  // files received this session
+    char lastName[96] = "";
+  };
+  TransferView transfer;
+  mutable std::mutex transferMutex;
+  TransferView transferSnapshot() const;
+  // Progress bookkeeping, main task only.
+  bool transferDrawPending = false;
+  unsigned long lastTransferPoll = 0;
+  unsigned long lastTransferDraw = 0;
+  void pollTransfer();
+  void renderDeck(const TransferView& tv) const;
+  void renderTransferStatus(const TransferView& tv) const;
 
   // Performance monitoring
   unsigned long lastHandleClientTime = 0;
@@ -65,7 +80,7 @@ class CrossPointWebServerActivity final : public Activity {
   // Cached signal-strength bracket (0..4) for the WiFi indicator.
   int lastWifiBars = 0;
 
-  void renderServerRunning() const;
+  void renderServerRunning(const TransferView& tv) const;
   void renderWifiIndicator(int subHeaderTop) const;
 
   void onNetworkModeSelected(NetworkMode mode);

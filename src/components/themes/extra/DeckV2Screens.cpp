@@ -40,7 +40,7 @@ int batteryPercent() { return std::min<int>(100, powerManager.getBatteryPercenta
 }  // namespace
 
 void drawOnlineScreen(const GfxRenderer& r, const bool received, const char* mode, const char* host,
-                      const char* message) {
+                      const char* message, const bool receiving, const int percent, const char* detail) {
   const int W = r.getScreenWidth();
   r.clearScreen();
   drawSmallHeader(r, "TRANSFER");
@@ -78,9 +78,31 @@ void drawOnlineScreen(const GfxRenderer& r, const bool received, const char* mod
   }
   drawTracked(r, small, 16, 196, r.truncatedText(small, line1.c_str(), 200, EpdFontFamily::BOLD).c_str(), 1, true,
               true);
+  int y = 196 + r.getLineHeight(small) + 2;
   if (!line2.empty()) {
-    drawTracked(r, small, 16, 196 + r.getLineHeight(small) + 2,
-                r.truncatedText(small, line2.c_str(), 200, EpdFontFamily::BOLD).c_str(), 1, true, true);
+    drawTracked(r, small, 16, y, r.truncatedText(small, line2.c_str(), 200, EpdFontFamily::BOLD).c_str(), 1, true,
+                true);
+    y += r.getLineHeight(small) + 2;
+  }
+  // Under the message, left of her head (x < 150): bar + percent, then one detail line each.
+  y += 10;
+  if (receiving && percent >= 0) {
+    const int p = std::clamp(percent, 0, 100);
+    segments(r, 16, y, 96, 14, 8, p * 8 / 100);
+    char pct[8];
+    snprintf(pct, sizeof(pct), "%d%%", p);
+    drawTracked(r, small, 122, y + (14 - r.getLineHeight(small)) / 2, pct, 1, true, true);
+    y += 14 + 8;
+  }
+  const std::string info = upper(detail ? detail : "");
+  size_t from = 0;
+  while (from < info.size()) {
+    size_t to = info.find('\n', from);
+    if (to == std::string::npos) to = info.size();
+    const std::string line = info.substr(from, to - from);
+    drawTracked(r, small, 16, y, r.truncatedText(small, line.c_str(), 134, EpdFontFamily::BOLD).c_str(), 1, true, true);
+    y += r.getLineHeight(small) + 2;
+    from = to + 1;
   }
   poly(r, {{W - 24, 150}, {W - 8, 130}, {W - 8, 670}, {W - 24, 670}});
   hatch(r, W - 70, 440, 40, 190);

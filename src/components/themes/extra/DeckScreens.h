@@ -33,8 +33,10 @@ void drawQuickResumeTab(const GfxRenderer& renderer);
 void transitionOut(const GfxRenderer& renderer, const char* destination, bool flash);
 void transitionIn(const GfxRenderer& renderer);
 // v2 (Operator companion) screens, see DeckV2Screens.cpp.
+// receiving: a file is coming in; percent (-1 = size unknown) draws the segment bar.
+// detail: small lines under it ('\n'-separated: bytes, files so far).
 void drawOnlineScreen(const GfxRenderer& renderer, bool received, const char* mode, const char* host,
-                      const char* message);
+                      const char* message, bool receiving = false, int percent = -1, const char* detail = nullptr);
 void drawUsbConnected(const GfxRenderer& renderer);
 // Modal over the current frame: hatch shade, LOW BATTERY card with the percent.
 void drawLowBatteryCard(const GfxRenderer& renderer, int percent);
