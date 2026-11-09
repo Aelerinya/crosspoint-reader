@@ -2,9 +2,12 @@
 
 #include <LibraryIndexFile.h>
 
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -36,6 +39,9 @@ class LibraryListActivity final : public UiTabListActivity {
 
   void onEnter() override;
   void onExit() override;
+  // While the cover worker runs: no auto sleep, no low CPU clock.
+  bool preventAutoSleep() override { return coverWorkerBusy(); }
+  bool backgroundWorkActive() override { return coverWorkerBusy(); }
 
  protected:
   // --- UiListActivity / UiTabListActivity contract ---------------------------
@@ -46,6 +52,24 @@ class LibraryListActivity final : public UiTabListActivity {
   // Deck v2: big LIBRARY tab, framed list with the sort strip (drawn in buildScreen).
   void buildDeckChrome(UiScreen& screen);
   std::map<std::string, int> deckProgress;  // per-session progress cache for the Deck rows
+  // Deck cover thumbs: book path -> thumb BMP path ("" = none). Drawing a page
+  // queues its missing thumbs; a worker task makes them off the input and render
+  // tasks, then asks for one redraw when the page's queue is empty. Thumbs stay
+  // cached on the card. coverMutex guards the members down to coverWorkerStop.
+  std::map<std::string, std::string> deckCovers;
+  std::vector<std::string> deckCoverQueue;
+  std::string deckCoverBusy;                    // the thumb being written: not readable yet
+  std::atomic<bool> coverWorkerRunning{false};  // written under coverMutex
+  bool coverWorkerStop = false;
+  std::mutex coverMutex;
+  std::condition_variable coverWorkerIdle;
+  bool deckCoverFor(const std::string& file, std::string& thumb);
+  void startCoverWorkerLocked();
+  bool coverWorkerBusy();
+  void stopCoverWorker();
+  void resumeCoverWorker();
+  static void coverWorkerTrampoline(void* self);
+  void coverWorkerLoop();
   void activateIndex(int index) override;
   void onRowLongPress(int index) override;
 #if FREEINK_CAP_TOUCH
@@ -90,12 +114,17 @@ class LibraryListActivity final : public UiTabListActivity {
   void showRecentBookOptions(int entry);
   void promptRemoveRecentBook(const std::string& path, const std::string& title);
   // Long-press delete owns the gesture where grouping does not apply: the
-  // Recent sort, degraded lists, and any active search result.
+  // Recent sort, degraded lists, any active search result, and an open author.
   bool deleteEligible() const;
   // Resolves the row's path and title, then confirms via promptDeleteBookByPath.
   void promptDeleteBook(int entry);
   void promptDeleteBookByPath(const std::string& path, const std::string& title);
   bool collapseGroups(int bookEntry);
+  // Author tab: the shelf is a list of authors; picking one shows only theirs.
+  void enterAuthorShelf();
+  void openAuthor(int groupEntry);
+  void closeAuthor();
+  bool authorOpen() const { return openGroup >= 0; }
   void expandGroup(int groupEntry);
   void restoreExpandedList();
   void selectTab(int index, bool toggleIfActive);
@@ -175,6 +204,12 @@ class LibraryListActivity final : public UiTabListActivity {
   uint16_t groupCount = 0;
   bool groupsCollapsed = false;
   freeink::ui::ListNav expandedNav;
+  // Open author: its group, its rows in the sort order, the authors list nav.
+  int openGroup = -1;
+  uint16_t openFirst = 0;
+  uint16_t openCount = 0;
+  std::string openAuthorName;  // stable c_str for headerTitle()
+  freeink::ui::ListNav authorsNav;
 
   // Visible-window row storage, reused across renders (buildRows). Bounded by
   // the densest page, never by the library. Headings get their own storage:

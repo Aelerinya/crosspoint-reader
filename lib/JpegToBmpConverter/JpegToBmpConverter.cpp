@@ -10,6 +10,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 
 #include "BitmapHelpers.h"
 
@@ -168,9 +169,10 @@ constexpr size_t JPEG_DECODER_SIZE = 20 * 1024;
 constexpr size_t MIN_FREE_HEAP = JPEG_DECODER_SIZE + 32 * 1024;
 constexpr uint32_t FP_ONE = 1UL << 16;
 
-// Static file pointer for JPEGDEC open callback.
-// Safe in single-threaded embedded context; never accessed concurrently.
+// Static file pointer for JPEGDEC open callback. Conversions may run from more
+// than one task; jpegMutex serializes them.
 static HalFile* s_jpegFile = nullptr;
+static std::mutex jpegMutex;
 static uint8_t s_jpegIoSinceYield = 0;
 
 static void yieldToIdle() { vTaskDelay(1); }
@@ -527,6 +529,7 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(HalFile& jpegFile, Print& b
     return false;
   }
 
+  std::lock_guard<std::mutex> jpegLock(jpegMutex);
   s_jpegFile = &jpegFile;
 
   const auto jpeg = makeUniqueNoThrow<JPEGDEC>();

@@ -94,6 +94,10 @@ void LibraryListActivity::onEnter() {
   // render task's SD-loaded fonts read glyph data at draw time, and the walk
   // needs the card to itself.
   RenderLock lock(*this);
+  {
+    std::lock_guard<std::mutex> covers(coverMutex);
+    coverWorkerStop = false;
+  }
   UiTabListActivity::onEnter();
   app.on(ACTION_SEARCH, &LibraryListActivity::searchActionTrampoline, this);
   app.on(ACTION_REBUILD, &LibraryListActivity::rebuildActionTrampoline, this);
@@ -127,6 +131,7 @@ void LibraryListActivity::onEnter() {
 }
 
 void LibraryListActivity::onExit() {
+  stopCoverWorker();
   index.close();
   Activity::onExit();
 }
@@ -231,12 +236,15 @@ void LibraryListActivity::openSelectedBook() {
 // hold a file open at a time, and the reader is about to open files of its own.
 void LibraryListActivity::openBookByPath(const std::string& path) {
   app.clearTapFlash();
+  stopCoverWorker();
   index.close();
   onSelectBook(path);
 }
 
 void LibraryListActivity::activateIndex(const int index) {
-  if (groupsCollapsed) {
+  if (groupsCollapsed && isAuthorSort(sortOrder)) {
+    openAuthor(index);
+  } else if (groupsCollapsed) {
     expandGroup(index);
   } else {
     openSelectedBook();
@@ -245,8 +253,9 @@ void LibraryListActivity::activateIndex(const int index) {
 
 // Row long-press prompts delete wherever grouping does not own the gesture:
 // an active search is already a flat list the reader narrowed down on purpose
-// ("find it, hold it, delete it"). Unfiltered Title/Author lists keep
-// collapse-to-groups. The Recent shelf always opens the row options menu.
+// ("find it, hold it, delete it"), and so is an open author's list. The
+// unfiltered Title list keeps collapse-to-groups. The Recent shelf always
+// opens the row options menu.
 bool LibraryListActivity::deleteEligible() const { return !groupsCollapsed && (!query.empty() || !groupable()); }
 
 void LibraryListActivity::onRowLongPress(const int index) {
@@ -337,6 +346,7 @@ void LibraryListActivity::swipeDelete(const int entry) {
 // the filter) around it.
 void LibraryListActivity::promptRebuildIndex() {
   RenderLock lock(*this);
+  stopCoverWorker();  // the walk wants the card to itself
   GUI.drawPopup(renderer, tr(STR_LIBRARY_REBUILDING));
   index.close();
   rebuildIndex();
@@ -370,8 +380,10 @@ void LibraryListActivity::promptRemoveRecentBook(const std::string& path, const 
     return;
   }
 
+  stopCoverWorker();  // paused under the dialog
   startActivityForResult(std::move(confirmation), [this, path, reopenIndex](const ActivityResult& result) {
     swallowHeldReleases();
+    resumeCoverWorker();
     if (reopenIndex && !index.open(library::libraryIndexPath())) LOG_ERR("LIB", "cannot reopen library index");
     if (!result.isCancelled && RECENT_BOOKS.removeByPath(path)) {
       resolvePinned();
@@ -416,6 +428,7 @@ void LibraryListActivity::promptDeleteBookByPath(const std::string& path, const 
     return;
   }
 
+  stopCoverWorker();  // paused under the dialog
   startActivityForResult(std::move(confirmation), [this, path](const ActivityResult& result) {
     swallowHeldReleases();
     {
@@ -424,6 +437,7 @@ void LibraryListActivity::promptDeleteBookByPath(const std::string& path, const 
       // rebuild.
       RenderLock lock(*this);
       if (!result.isCancelled) {
+        stopCoverWorker();  // no thumb write while the book and its cache are deleted
         LOG_DBG("LIB", "deleting %s", path.c_str());
         if (!removeBookFile(path)) LOG_ERR("LIB", "cannot delete %s", path.c_str());
         if (RECENT_BOOKS.removeByPath(path)) RECENT_BOOKS.saveToFile();
@@ -435,6 +449,7 @@ void LibraryListActivity::promptDeleteBookByPath(const std::string& path, const 
         resetAfterRebuild();
       }
     }
+    resumeCoverWorker();
     if (!result.isCancelled) {
       closeRouting();
       requestUpdate(true);
@@ -453,11 +468,16 @@ void LibraryListActivity::openSearch() {
     LOG_ERR("LIB", "OOM: search keyboard");
     return;
   }
+  stopCoverWorker();  // paused under the keyboard
   startActivityForResult(std::move(keyboard), [this](const ActivityResult& result) {
     swallowHeldReleases();
+    resumeCoverWorker();
     if (result.isCancelled) return;
     query = std::get<KeyboardResult>(result.data).text;
-    applyFilter();
+    {
+      RenderLock lock(*this);  // the walk reads the shared index handle
+      applyFilter();
+    }
     auto& nav = activeNav();
     if (!query.empty() && filteredCount == 0 && !degraded) {
       // Up from the tab bar reopens Search even with no results.
@@ -489,11 +509,14 @@ void LibraryListActivity::selectTab(const int index, const bool toggleIfActive) 
   if (index < 0 || index >= TAB_SLOTS) return;
   if (toggleIfActive && index == activeTab()) descendingTabs ^= static_cast<uint8_t>(1u << index);
   sortOrder = orderForTab(index, descendingTabs);
-  // The filter and the overlap rows hold positions in the old order, so they
-  // must be rebuilt.
-  applyFilter();
   activeTabIndex = index;
-  refreshOverlap();
+  // The filter, author groups and overlap rows hold positions in the old
+  // order, so they must be rebuilt (with the render task off the index).
+  {
+    RenderLock lock(*this);
+    applyFilter();
+    refreshOverlap();
+  }
   // Tab changes happen only while the bar owns focus. A tab's remembered row
   // must not pull focus back into the list after the switch.
   auto& nav = activeNav();
@@ -517,6 +540,7 @@ fui::TabIndicator LibraryListActivity::tabIndicator(const int index) const {
 
 int LibraryListActivity::bookRowCount() const {
   if (!query.empty()) return static_cast<int>(filteredCount);
+  if (authorOpen()) return openCount;
   // Pinned books already in the index are skipped below the pins, not doubled;
   // pinned books the index missed still show, so the difference stays split.
   const int pinned = pinnedCount();
@@ -534,6 +558,7 @@ int LibraryListActivity::rowFor(const int entry) const {
     if (entry < 0 || entry >= static_cast<int>(filteredCount) || !filtered) return 0;
     return filtered[entry];
   }
+  if (authorOpen()) return openFirst + entry;
   const int pinned = pinnedCount();
   if (pinned == 0) return entry;
   int row = entry - pinned;
@@ -543,7 +568,9 @@ int LibraryListActivity::rowFor(const int entry) const {
   return row;
 }
 
-bool LibraryListActivity::groupable() const { return !degraded && !isRecentSort(sortOrder) && bookRowCount() > 0; }
+bool LibraryListActivity::groupable() const {
+  return !degraded && !isRecentSort(sortOrder) && !authorOpen() && bookRowCount() > 0;
+}
 
 uint32_t LibraryListActivity::titleInitialFor(const int entry) {
   const uint16_t ordinal = index.ordinalForRow(sortOrder, static_cast<uint16_t>(rowFor(entry)));
@@ -598,6 +625,7 @@ int LibraryListActivity::groupForBook(const int bookEntry) const {
 }
 
 bool LibraryListActivity::collapseGroups(const int bookEntry) {
+  RenderLock lock(*this);  // the walk reads the shared index handle
   if (!groupable() || !buildGroupStarts()) return false;
   expandedNav = activeNav();
   groupsCollapsed = true;
@@ -619,6 +647,39 @@ void LibraryListActivity::expandGroup(const int groupEntry) {
   requestUpdate();
 }
 
+void LibraryListActivity::enterAuthorShelf() {
+  openGroup = -1;
+  if (!query.empty() || !isAuthorSort(sortOrder) || !groupable() || !buildGroupStarts()) return;
+  groupsCollapsed = true;
+}
+
+void LibraryListActivity::openAuthor(const int groupEntry) {
+  // Reads the index and sets state the render task draws from.
+  RenderLock lock(*this);
+  if (!groupsCollapsed || groupEntry < 0 || groupEntry >= groupCount) return;
+  // Unfiltered Author sort has no pins, so group entries are sort rows.
+  const int end = groupEntry + 1 < groupCount ? groupStarts[groupEntry + 1] : bookRowCount();
+  openFirst = groupStarts[groupEntry];
+  openCount = static_cast<uint16_t>(end - openFirst);
+  authorsNav = activeNav();
+  groupsCollapsed = false;
+  openGroup = groupEntry;
+  std::string title, author;
+  rowTextFor(0, title, author);
+  openAuthorName = author.empty() ? std::string(tr(STR_LIBRARY_UNKNOWN_AUTHOR)) : author;
+  activeNav().reset(1);
+  requestUpdate();
+}
+
+void LibraryListActivity::closeAuthor() {
+  RenderLock lock(*this);
+  if (!authorOpen()) return;
+  openGroup = -1;
+  groupsCollapsed = true;
+  activeNav() = authorsNav;
+  requestUpdate();
+}
+
 void LibraryListActivity::restoreExpandedList() {
   if (!groupsCollapsed) return;
   groupsCollapsed = false;
@@ -632,6 +693,7 @@ void LibraryListActivity::restoreExpandedList() {
 // explicit message rather than letting vector growth abort the firmware.
 void LibraryListActivity::applyFilter() {
   groupsCollapsed = false;
+  openGroup = -1;
   groupCount = 0;
   filtered.reset();
   filteredCount = 0;
@@ -639,7 +701,10 @@ void LibraryListActivity::applyFilter() {
   // The header shows the active query in place of the screen title, so the
   // reader can see what narrowed the list without reopening the keyboard.
   headerSearchTitle = query.empty() ? std::string() : "“" + query + "”";
-  if (query.empty()) return;
+  if (query.empty()) {
+    enterAuthorShelf();
+    return;
+  }
 
   const std::string needle = library::fold(query);
   const int total = static_cast<int>(index.bookCount());
@@ -676,17 +741,22 @@ void LibraryListActivity::applyFilter() {
 }
 
 // Staged back-out, shared by the Back button and the header's back arrow:
-// clear the search, expand collapsed groups, return focus to the tabs, then
-// leave for home.
+// clear the search, close an open author or expand collapsed groups, return
+// focus to the tabs, then leave for home.
 void LibraryListActivity::handleBackAction() {
   auto& nav = activeNav();
   if (!query.empty()) {
     query.clear();
-    applyFilter();
+    {
+      RenderLock lock(*this);
+      applyFilter();
+    }
     nav.selected = 0;
     nav.top = 0;
     requestUpdate();
-  } else if (groupsCollapsed) {
+  } else if (authorOpen()) {
+    closeAuthor();
+  } else if (groupsCollapsed && !isAuthorSort(sortOrder)) {
     restoreExpandedList();
   } else if (!tabsFocused() && !degraded) {
     // Keep the current list and viewport while returning focus to the tabs.
@@ -838,8 +908,8 @@ void LibraryListActivity::navigateButtons() {
 void LibraryListActivity::buildRows(UiScreen& screen) {
   auto& nav = activeNav();
   const int count = listCount();
-  const bool authorGrouped = isAuthorSort(sortOrder);
-  const bool grouped = !isRecentSort(sortOrder);
+  const bool authorGrouped = isAuthorSort(sortOrder) && !authorOpen();
+  const bool grouped = !isRecentSort(sortOrder) && !authorOpen();
 
   fui::ListProps props;
   props.count = static_cast<uint16_t>(count);
@@ -899,7 +969,8 @@ void LibraryListActivity::buildRows(UiScreen& screen) {
           formatInitialHeading(initial, heading);
         item.sectionHeading = heading.c_str();
       }
-      if (!authorGrouped && !author.empty()) item.subtitle = author.c_str();
+      // Deck rows carry no headings, so they always show the author line.
+      if ((!authorGrouped || deck::listsActive()) && !authorOpen() && !author.empty()) item.subtitle = author.c_str();
     }
 
     item.label = title.c_str();
@@ -1068,7 +1139,29 @@ void LibraryListActivity::buildDeckChrome(UiScreen& screen) {
   renderer.drawRect(kX, boxTop, W - 2 * kX, boxBottom - boxTop, 3, true);
   const int stripH = renderer.getLineHeight(SMALL_FONT_ID) + 16;
   renderer.fillRect(kX, boxTop, W - 2 * kX, stripH, true);
-  if (!degraded) {
+  // Rows queue their missing covers again on every build.
+  {
+    std::lock_guard<std::mutex> lock(coverMutex);
+    deckCoverQueue.clear();
+  }
+  if (authorOpen()) {
+    // AUTHOR tab (Back returns to the authors list), then the name and count.
+    const int th = renderer.getLineHeight(SMALL_FONT_ID) + 4;
+    const int ty = boxTop + (stripH - th) / 2;
+    const std::string label = deck::upper(tabLabel(AUTHOR_TAB));
+    const int w = deck::trackedWidth(renderer, SMALL_FONT_ID, label.c_str(), 2, true) + 28;
+    deck::fillSlant(renderer, kX + 12, ty, w, th, false);
+    deck::drawTracked(renderer, SMALL_FONT_ID, kX + 26, ty + 2, label.c_str(), 2, true, true);
+    const std::string& author = openAuthorName;
+    const std::string count = std::to_string(openCount);
+    const int cw = deck::trackedWidth(renderer, SMALL_FONT_ID, count.c_str(), 2, true);
+    const int nx = kX + 12 + w + 10;
+    const int nmax = W - kX - 12 - cw - 12 - nx;
+    const std::string name =
+        renderer.truncatedText(SMALL_FONT_ID, deck::upper(author).c_str(), nmax, EpdFontFamily::BOLD);
+    deck::drawTracked(renderer, SMALL_FONT_ID, nx, ty + 2, name.c_str(), 2, false, true);
+    deck::drawTracked(renderer, SMALL_FONT_ID, W - kX - 12 - cw, ty + 2, count.c_str(), 2, false, true);
+  } else if (!degraded) {
     int tx = kX + 12;
     const int th = renderer.getLineHeight(SMALL_FONT_ID) + 4;
     const int ty = boxTop + (stripH - th) / 2;
@@ -1092,26 +1185,30 @@ void LibraryListActivity::buildDeckChrome(UiScreen& screen) {
 }
 
 void LibraryListActivity::deckRowExtra(const int index, deck::Row& row) {
-  if (groupsCollapsed) return;
+  int entry = index;
+  if (groupsCollapsed) {
+    // Author rows: book count, and the first book's cover.
+    if (!isAuthorSort(sortOrder) || index < 0 || index >= groupCount) return;
+    entry = groupStarts[index];
+    const int end = index + 1 < groupCount ? groupStarts[index + 1] : bookRowCount();
+    row.right = std::to_string(end - entry);
+  }
   // Full path: the recents store it; the index rebuilds it from the record.
   std::string file;
-  if (index < pinnedCount()) {
+  if (entry < pinnedCount()) {
     const auto& books = RECENT_BOOKS.getBooks();
-    if (index >= static_cast<int>(books.size())) return;
-    file = books[static_cast<size_t>(index)].path;
+    if (entry >= static_cast<int>(books.size())) return;
+    file = books[static_cast<size_t>(entry)].path;
   } else {
     if (!this->index.isOpen()) return;
-    const uint16_t ordinal = this->index.ordinalForRow(sortOrder, static_cast<uint16_t>(rowFor(index)));
+    const uint16_t ordinal = this->index.ordinalForRow(sortOrder, static_cast<uint16_t>(rowFor(entry)));
     library::ClixRecord record{};
     if (ordinal == 0xFFFF || !this->index.readRecord(ordinal, record) || !this->index.readPath(record, file)) return;
   }
   if (file.empty()) return;
-  // Cover thumb (74 px), made from the EPUB's metadata the first time it shows.
-  if (FsHelpers::hasReflowableBookExtension(file) && !Txt::isTxtOrMd(file)) {
-    Epub epub(file, "/.crosspoint");
-    const std::string thumb = epub.getThumbBmpPath(74);
-    if (Storage.exists(thumb.c_str()) || epub.generateThumbBmpFromSource(74)) row.coverPath = thumb;
-  }
+  std::string thumb;
+  if (deckCoverFor(file, thumb)) row.coverPath = thumb;
+  if (groupsCollapsed) return;
   // Progress for books already opened (the recents), NEW for none.
   for (const auto& b : RECENT_BOOKS.getBooks()) {
     if (b.path != file) continue;
@@ -1125,6 +1222,124 @@ void LibraryListActivity::deckRowExtra(const int index, deck::Row& row) {
     }
     if (pct >= 0) row.right = std::to_string(pct) + "%";
     return;
+  }
+}
+
+namespace {
+constexpr int kDeckCoverHeight = 74;
+// The C3 render task runs the same decode (OPF parse + JPEG/PNG) for Home
+// thumbnails in 8 KB; Xtensa frames are larger. Short-lived: only while covers
+// are missing.
+#if defined(CONFIG_FREERTOS_NUMBER_OF_CORES) && CONFIG_FREERTOS_NUMBER_OF_CORES > 1
+constexpr uint32_t kCoverWorkerStackBytes = 12288;
+#else
+constexpr uint32_t kCoverWorkerStackBytes = 8192;
+#endif
+// Dual-core boards run input and rendering on core 1; single-core has only 0.
+constexpr BaseType_t kCoverWorkerCore = 0;
+}  // namespace
+
+// Cover thumb for a row (render task). Never decodes a cover here: a missing
+// thumb is queued for the worker, and the row shows the hatch until it exists.
+bool LibraryListActivity::deckCoverFor(const std::string& file, std::string& thumb) {
+  std::lock_guard<std::mutex> lock(coverMutex);
+  const auto cached = deckCovers.find(file);
+  if (cached != deckCovers.end()) {
+    thumb = cached->second;
+    return !thumb.empty();
+  }
+  // Bounded: about one entry per row seen; a long scroll starts over.
+  if (deckCovers.size() >= 24) deckCovers.clear();
+  if (!FsHelpers::hasReflowableBookExtension(file) || Txt::isTxtOrMd(file)) {
+    deckCovers[file] = "";
+    return false;
+  }
+  if (file == deckCoverBusy) return false;  // half written
+  const Epub epub(file, "/.crosspoint");
+  std::string path = epub.getThumbBmpPath(kDeckCoverHeight);
+  if (Storage.exists(path.c_str())) {
+    thumb = path;
+    deckCovers[file] = std::move(path);
+    return true;
+  }
+  if (std::find(deckCoverQueue.begin(), deckCoverQueue.end(), file) == deckCoverQueue.end()) {
+    deckCoverQueue.push_back(file);
+  }
+  startCoverWorkerLocked();
+  return false;
+}
+
+// Caller holds coverMutex. The worker lives only while there is work.
+void LibraryListActivity::startCoverWorkerLocked() {
+  if (coverWorkerRunning || coverWorkerStop) return;
+  coverWorkerRunning = true;
+  TaskHandle_t handle = nullptr;
+  // Idle priority: input and rendering always win the CPU over a decode.
+  if (xTaskCreatePinnedToCore(&LibraryListActivity::coverWorkerTrampoline, "LibraryCovers", kCoverWorkerStackBytes,
+                              this, tskIDLE_PRIORITY, &handle, kCoverWorkerCore) != pdPASS) {
+    LOG_ERR("LIB", "cannot start cover worker");
+    coverWorkerRunning = false;
+  }
+}
+
+// Drops queued covers and waits for the one in progress (it writes the card).
+// The worker stays stopped until resumeCoverWorker() (dialog closed) or onEnter.
+void LibraryListActivity::stopCoverWorker() {
+  std::unique_lock<std::mutex> lock(coverMutex);
+  coverWorkerStop = true;
+  deckCoverQueue.clear();
+  coverWorkerIdle.wait(lock, [this] { return !coverWorkerRunning; });
+}
+
+// The Library is current again: rows drawn from now on may start the worker.
+void LibraryListActivity::resumeCoverWorker() {
+  std::lock_guard<std::mutex> lock(coverMutex);
+  coverWorkerStop = false;
+}
+
+// Lock-free: the main loop asks every pass and must not wait behind a decode.
+bool LibraryListActivity::coverWorkerBusy() { return coverWorkerRunning.load(); }
+
+void LibraryListActivity::coverWorkerTrampoline(void* self) {
+  static_cast<LibraryListActivity*>(self)->coverWorkerLoop();
+  vTaskDelete(nullptr);
+}
+
+void LibraryListActivity::coverWorkerLoop() {
+  while (true) {
+    std::string file;
+    {
+      std::lock_guard<std::mutex> lock(coverMutex);
+      if (coverWorkerStop || deckCoverQueue.empty()) {
+        coverWorkerRunning = false;
+        LOG_DBG("LIB", "cover worker done, stack headroom %u B",
+                static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+        // stopCoverWorker() may destroy this activity once it sees the flag:
+        // nothing below touches members.
+        coverWorkerIdle.notify_all();
+        return;
+      }
+      file = deckCoverQueue.front();
+      deckCoverQueue.erase(deckCoverQueue.begin());
+      deckCoverBusy = file;
+    }
+    // Full CPU speed comes from backgroundWorkActive(): the power Lock has one
+    // slot, which the render task that started this worker usually holds.
+    std::string thumb;
+    {
+      Epub epub(file, "/.crosspoint");
+      if (epub.generateThumbBmpFromSource(kDeckCoverHeight)) thumb = epub.getThumbBmpPath(kDeckCoverHeight);
+    }
+    bool pageDone;
+    {
+      std::lock_guard<std::mutex> lock(coverMutex);
+      deckCovers[file] = std::move(thumb);
+      deckCoverBusy.clear();
+      pageDone = deckCoverQueue.empty() && !coverWorkerStop;
+    }
+    // One redraw per page of new covers. Immediate: the deferred flag belongs
+    // to the main loop.
+    if (pageDone) requestUpdate(true);
   }
 }
 
@@ -1148,6 +1363,8 @@ void LibraryListActivity::drawPositionReadout() const {
 
 const char* LibraryListActivity::headerTitle() const {
   if (!headerSearchTitle.empty()) return headerSearchTitle.c_str();
+  // Deck names the open author in its strip and keeps the LIBRARY tab.
+  if (authorOpen() && !deck::listsActive()) return openAuthorName.c_str();
   return degraded ? tr(STR_LIBRARY_TITLE_UNSORTED) : tr(STR_LIBRARY);
 }
 
@@ -1185,7 +1402,8 @@ void LibraryListActivity::drawFooter() {
   drawPositionReadout();
   drawHoldHelp();
 
-  const bool backGoesHome = tabsFocused() && !groupsCollapsed && query.empty();
+  const bool backGoesHome =
+      tabsFocused() && query.empty() && !authorOpen() && (!groupsCollapsed || isAuthorSort(sortOrder));
   const char* backLabel = backGoesHome ? tr(STR_HOME) : tr(STR_BACK);
   const char* confirmLabel = groupsCollapsed ? tr(STR_SELECT) : tr(STR_OPEN);
   const bool canSearch = tabsFocused() && !degraded;

@@ -1853,6 +1853,16 @@ void GfxRenderer::displayBufferAsync(HalDisplay::RefreshMode refreshMode) const 
   display.displayBufferAsync(refreshMode);
 }
 
+void GfxRenderer::displayBufferDeferred(HalDisplay::RefreshMode refreshMode) const {
+  runBeforeNextDisplay();
+  refreshMode = applyPromotedRefresh(refreshMode);
+  if (fadingFix) {
+    display.displayBuffer(refreshMode, fadingFix);
+    return;
+  }
+  display.displayBufferDeferred(refreshMode);
+}
+
 void GfxRenderer::waitRefreshComplete() const { display.waitRefreshComplete(); }
 
 bool GfxRenderer::supportsAsyncRefresh() const { return !fadingFix && display.supportsAsyncRefresh(); }
@@ -2483,17 +2493,27 @@ size_t GfxRenderer::getBufferSize() const { return frameBufferSize; }
 // unused
 // void GfxRenderer::grayscaleRevert() const { display.grayscaleRevert(); }
 
+HalDisplay::RefreshMode GfxRenderer::dropBeforeNextDisplay(const HalDisplay::RefreshMode refreshMode) const {
+  if (!beforeNextDisplay_) return refreshMode;
+  beforeNextDisplay_ = nullptr;
+  return refreshMode == HalDisplay::FULL_REFRESH ? refreshMode : HalDisplay::HALF_REFRESH;
+}
+
 void GfxRenderer::displayGrayscaleBase(HalDisplay::RefreshMode fallback) const {
-  beforeNextDisplay_ = nullptr;  // no extra frames inside a grayscale sequence
+  fallback = dropBeforeNextDisplay(fallback);  // no extra frames inside a grayscale sequence
   absoluteGrayPlanes = false;
   display.displayGrayscaleBase(applyPromotedRefresh(fallback), fadingFix);
 }
 
 bool GfxRenderer::displayGrayscaleBase(HalDisplay::GrayscaleMode mode, HalDisplay::RefreshMode fallback) const {
-  beforeNextDisplay_ = nullptr;  // no extra frames inside a grayscale sequence
+  const bool droppedHook = static_cast<bool>(beforeNextDisplay_);
+  fallback = dropBeforeNextDisplay(fallback);  // no extra frames inside a grayscale sequence
   absoluteGrayPlanes = false;
-  if (!display.displayGrayscaleBase(mode, promotedRefreshPending_ ? promotedRefresh_ : fallback, fadingFix))
+  if (!display.displayGrayscaleBase(mode, promotedRefreshPending_ ? promotedRefresh_ : fallback, fadingFix)) {
+    // The caller falls back to a plain refresh: hand it the HALF.
+    if (droppedHook && !promotedRefreshPending_) promoteNextRefresh(fallback);
     return false;
+  }
   promotedRefreshPending_ = false;
   absoluteGrayPlanes = mode != HalDisplay::GrayscaleMode::Overlay;
   return true;

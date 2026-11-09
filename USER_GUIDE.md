@@ -132,7 +132,7 @@ The Library indexes up to 4,096 supported books on the SD card and shows their t
 - **Recent** lists the ten books you opened most recently. Hold a book to remove it from this list.
 - **Added** keeps books in the order in which the Library first discovered them. Down shows newest additions first; up shows oldest first.
 - **Title** groups books by the first letter of the title. Up sorts A-Z and down sorts Z-A. Titles beginning with numbers or punctuation appear under `#`; letters from non-English scripts, including Hebrew, have their own groups.
-- **Author** groups books by author. Up sorts A-Z and down sorts Z-A.
+- **Author** lists the authors, each with how many books they have. Up sorts A-Z and down sorts Z-A. Press **Confirm** on an author to see only their books; **Back** returns to the author list.
 
 On a button-only device:
 
@@ -140,9 +140,9 @@ On a button-only device:
 - Press **Confirm** to open the selected book.
 - Press **Back** from the book list to focus the tabs. Use **Left/Right** to select another tab, press **Confirm** to reverse its sort direction, or press **Down** to return to the list.
 - While the tabs are focused, hold **Confirm** to open Search.
-- In the Title or Author views, hold **Confirm** on a book to collapse the list to its letter or author groups. The matching group remains selected. Press **Confirm** to enter a group, or **Back** to restore the exact book and position you came from.
+- In the Title view, hold **Confirm** on a book to collapse the list to its letter groups. The matching group remains selected. Press **Confirm** to enter a group, or **Back** to restore the exact book and position you came from.
 
-On a touch device, tap tabs, books, and the Search icon directly. Tap an active indexed tab again to reverse its sort direction. Swipe to scroll. Long-press a book in the Recent view to remove it from the list. Long-press a book in a Title or Author view to collapse to the group list, then tap a group to expand it. The **Added** view is not grouped; tapping or long-pressing a book opens it.
+On a touch device, tap tabs, books, and the Search icon directly. Tap an active indexed tab again to reverse its sort direction. Swipe to scroll. Long-press a book in the Recent view to remove it from the list. Long-press a book in the Title view to collapse to the group list, then tap a group to expand it. In the Author view, tap an author to see their books; long-press one of them to delete it. The **Added** view is not grouped; tapping or long-pressing a book opens it.
 
 The index is created automatically the first time the Library is opened. To pick up later file changes or updated metadata, use **Settings → System → Rebuild library index**. The **Use book metadata** setting controls whether the index reads titles and authors stored inside books.
 

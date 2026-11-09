@@ -91,6 +91,8 @@ class GfxRenderer {
   mutable HalDisplay::RefreshMode promotedRefresh_ = HalDisplay::FAST_REFRESH;
   // Swap in (and clear) the promoted mode, if one is pending.
   HalDisplay::RefreshMode applyPromotedRefresh(HalDisplay::RefreshMode refreshMode) const;
+  // Drop a pending beforeNextDisplay hook; HALF when there was one.
+  HalDisplay::RefreshMode dropBeforeNextDisplay(HalDisplay::RefreshMode refreshMode) const;
 
   // Tiled grayscale strip target. When active, drawPixel()/clearScreen()
   // operate on a caller-owned scratch holding one horizontal band of physical
@@ -258,6 +260,11 @@ class GfxRenderer {
   // a blocking refresh when fadingFix is enabled or the panel lacks deferral
   // support. See HalDisplay::displayBufferAsync for the baseline contract.
   void displayBufferAsync(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
+  // Non-blocking refresh that keeps its own copy of the frame, so the caller
+  // may draw the next frame right away; the next display call waits for the
+  // panel. Leaves the diff baseline stale: see HalDisplay::displayBufferDeferred.
+  // Blocking when fadingFix is on or the panel can't defer.
+  void displayBufferDeferred(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
   void waitRefreshComplete() const;
   // True when displayBufferAsync() genuinely overlaps: panel defers and
   // fadingFix isn't forcing the blocking path. Callers can skip overlap
@@ -329,8 +336,9 @@ class GfxRenderer {
   // Theme hook (Deck): rounded rects become chamfered (radius = cut, capped at 14 px).
   void setChamferCorners(bool on) { chamferCorners_ = on; }
   // One-shot hook run at the start of the next displayBuffer* call, before that
-  // frame goes out (Deck screen transitions). A grayscale base drops it instead:
-  // extra refreshes there would disturb the gray pass.
+  // frame goes out (Deck screen transitions). A grayscale base drops it instead
+  // (extra refreshes there would disturb the gray pass) and refreshes HALF: the
+  // hook's owner may rely on it to reseed a stale diff baseline.
   void setBeforeNextDisplay(std::function<void()> hook) const { beforeNextDisplay_ = std::move(hook); }
   bool chamferCorners() const { return chamferCorners_; }
   void fillRect(int x, int y, int width, int height, bool state = true) const;

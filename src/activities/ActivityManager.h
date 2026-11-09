@@ -110,6 +110,7 @@ class ActivityManager {
   void popActivity();
 
   bool preventAutoSleep() const;
+  bool backgroundWorkActive() const;
   bool requiresExclusiveStorageLoop() const;
   bool isReaderActivity() const;
   // Bluetooth page turner (lib/BlePageTurner): the book in front, whether it has painted a page, and

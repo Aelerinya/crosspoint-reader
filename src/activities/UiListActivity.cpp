@@ -295,6 +295,8 @@ void UiListActivity::syncListViewport(UiScreen& screen, fui::ListProps& props, c
     deckListPending = true;
     deckSelectionOffset = selectionOffset;
     drawDeckListViewport(screen, selectionOffset);
+    // Windowed screens read the first row to materialize from here.
+    props.topIndex = static_cast<uint16_t>(activeNav().top);
     return;
   }
   props.toggleCheckbox = true;

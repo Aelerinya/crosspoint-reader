@@ -350,8 +350,6 @@ void drawQuickResumeTab(const GfxRenderer& r) {
 
 namespace {
 
-constexpr int kFrameMs = 170;
-
 // Quadrilateral with horizontal top/bottom edges: x at the top and bottom of each side.
 void fillQuad(const GfxRenderer& r, const int top, const int bottom, const int topL, const int topR, const int botL,
               const int botR, const bool striped) {
@@ -387,8 +385,10 @@ void transitionOut(const GfxRenderer& r, const char* destination, const bool fla
   fillQuad(r, 0, H, 0, W * 58 / 100, 0, W * 30 / 100, false);
   fillQuad(r, 0, H, W * 62 / 100, W * 74 / 100, W * 34 / 100, W * 46 / 100, true);
   r.fillRect(40, H * 318 / 800, W - 40, 26, true);
-  r.displayBuffer(HalDisplay::FAST_REFRESH);
-  delay(kFrameMs);
+  // Every frame is deferred: the panel shows it while the next one is drawn
+  // (or, for the last one, while the next screen loads), and each display call
+  // waits for the previous refresh. The refresh itself is how long a frame holds.
+  r.displayBufferDeferred(HalDisplay::FAST_REFRESH);
   if (!flash) return;
 
   // 2. Flash: black frame, destination in white; this is the panel's full refresh.
@@ -406,8 +406,7 @@ void transitionOut(const GfxRenderer& r, const char* destination, const bool fla
   r.fillRect(40, y, W - 80, 3, false);
   y += 13;
   drawTracked(r, SMALL_FONT_ID, 40, y, "// FULL REFRESH \xc2\xb7 GHOST CLEAR", 3, false, true);
-  r.displayBuffer(HalDisplay::FULL_REFRESH);
-  delay(kFrameMs);
+  r.displayBufferDeferred(HalDisplay::FULL_REFRESH);
 }
 
 void transitionIn(const GfxRenderer& r) {
@@ -416,7 +415,12 @@ void transitionIn(const GfxRenderer& r) {
   if (!fb || size == 0) return;
   // The incoming frame, restored after each overlay. No copy, no transition.
   auto saved = makeUniqueNoThrow<uint8_t[]>(size);
-  if (!saved) return;
+  if (!saved) {
+    // transitionOut's deferred frame left the panel's diff baseline stale;
+    // a non-differential refresh doesn't use it.
+    r.promoteNextRefresh(HalDisplay::HALF_REFRESH);
+    return;
+  }
   memcpy(saved.get(), fb, size);
   {
     PortraitScope portrait(r);
@@ -426,14 +430,16 @@ void transitionIn(const GfxRenderer& r) {
     fillQuad(r, 0, H, W * 70 / 100, W, W * 42 / 100, W, false);
     fillQuad(r, 0, H, W * 56 / 100, W * 66 / 100, W * 28 / 100, W * 38 / 100, true);
     r.fillRect(0, H * 210 / 800, W * 60 / 100 - 24, 18, true);
-    r.displayBuffer(HalDisplay::FAST_REFRESH);
-    delay(kFrameMs);
+    r.displayBufferDeferred(HalDisplay::FAST_REFRESH);
     memcpy(fb, saved.get(), size);
     // 4. Glitch: two scan lines across the clean screen.
     r.fillRect(0, H * 140 / 800, W, 4, true);
     r.fillRect(0, H * 420 / 800, W - 30, 2, true);
-    r.displayBuffer(HalDisplay::FAST_REFRESH);
-    delay(kFrameMs);
+    r.displayBufferDeferred(HalDisplay::FAST_REFRESH);
+    // Deferred refreshes skip the controller's post-refresh baseline resync, and
+    // the caller's refresh is a plain FAST diff against that baseline: wait for
+    // this frame, then seed the baseline with it (the scan lines would stay).
+    r.cleanupGrayscaleWithFrameBuffer();
   }
   // 5. Settle: the caller's refresh sends the clean frame.
   memcpy(fb, saved.get(), size);

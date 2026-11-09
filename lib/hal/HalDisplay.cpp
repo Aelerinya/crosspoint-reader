@@ -75,6 +75,19 @@ void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {
   einkDisplay.displayBufferAsyncNoShadow(convertRefreshMode(mode));
 }
 
+void HalDisplay::displayBufferDeferred(HalDisplay::RefreshMode mode) {
+  if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
+    einkDisplay.requestResync(1);
+  }
+
+#if defined(BOARD_HAS_PSRAM)
+  einkDisplay.displayBufferAsync(convertRefreshMode(mode));
+#else
+  // The shadow frame would stay in internal RAM for the whole session.
+  einkDisplay.displayBuffer(convertRefreshMode(mode));
+#endif
+}
+
 void HalDisplay::waitRefreshComplete() { einkDisplay.waitRefreshComplete(); }
 
 bool HalDisplay::supportsAsyncRefresh() const { return einkDisplay.supportsAsyncRefresh(); }
